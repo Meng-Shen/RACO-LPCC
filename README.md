@@ -1,22 +1,6 @@
 安装参考：[mmdetection3d](https://github.com/open-mmlab/mmdetection3d)
 
-维护仓库：
-cd RACO-LPCC
-git init
-git add .
-git config --global user.name "sm"
-git config --global user.email "3403500939@qq.com"
-git commit -m "first commit"
-git remote add origin https://github.com/Meng-Shen/mmdetection3d 服务器访问不了Github时换成以下命令：
-git remote set-url origin https://gh.llkk.cc/https://github.com/Meng-Shen/mmdetection3d.git
-git push -u origin master
-Username for 'https://github.com': Meng-Shen
-Password for 'https://Meng-Shen@github.com': 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 (personal access token)
 
-以后更新代码：
-git add .
-git commit -m "update"
-git push
 
 点云分割命令：
 cd mmdetection3d
