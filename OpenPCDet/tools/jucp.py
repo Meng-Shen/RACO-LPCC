@@ -81,7 +81,7 @@ def main():
     logger = common_utils.create_logger()
     
     # 10个量化挡位 (0对应无损，9对应最低压缩精度/最大压缩率)
-    scales = [1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/64, 1/128, 1/256, 1/512]
+    scales = [1/64, 1.5/128, 1/128, 1.5/256, 1/256, 1.5/512, 1/512]
     
     with open(args.split_file, 'r') as f:
         frame_ids = [line.strip() for line in f.readlines() if line.strip()]
@@ -154,7 +154,7 @@ def main():
         # 如果模型连无损状态下都没测出物体，直接打为极难帧，赋予最高压缩率
         if base_tp == 0:
             results_list.append({
-                'frame_id': frame_id, 'jucp_label': 9, 'scale': scales[9],
+                'frame_id': frame_id, 'jucp_label': 6, 'scale': scales[6],
                 'base_tp': 0, 'cur_tp': 0, 'base_miou': 0.0, 'cur_miou': 0.0, 
                 'drop_reason': 'Hard Frame (Base TP=0)'
             })
@@ -167,7 +167,7 @@ def main():
         drop_reason = 'Failed to compress'
         
         # --- B. 从最低精度(9)向最高精度(0)搜索 ---
-        for label_idx in range(9, -1, -1):
+        for label_idx in range(6, -1, -1):
             if label_idx == 0:
                 jucp_label = 0
                 best_scale = scales[0]

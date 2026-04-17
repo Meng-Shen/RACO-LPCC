@@ -97,6 +97,7 @@ python test_split.py \
     --weights='../mmdetection3d/ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth'
 
 
+
 分配反射率：
 cd RACO-LPCC
 python nn.py \
@@ -122,6 +123,11 @@ python single_frame_eval.py \
     --ckpt ckpt/pv_rcnn_8369.pth \
     --frame_id 000008 \
     --iou_thresh 0.5
+
+python test_pos.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --batch_size 8 \
+    --ckpt ckpt/latest_model.pth
 
 python jucp.py \
     --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
@@ -152,5 +158,9 @@ gpcc原方法多码率压缩：
 python test_gpcc.py \
     --testdata='../OpenPCDet/data/kitti/training/velodyne'
 
-python quantize.py \
-    --testdata='../OpenPCDet/data/kitti/training/velodyne'
+python average.py --results_dir ./results_gpcc
+
+python curve.py \
+    --log /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval/epoch_no_number/val/default/log_eval_pos_20260417-104222.txt \
+    --csv GPCC/result/gpcc_average_results.csv \
+    --out mAP_vs_bpp.png

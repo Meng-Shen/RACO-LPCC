@@ -2,4 +2,4 @@ mmdetection3d/ckpt/
 OpenPCDet/data/
 OpenPCDet/tools/ckpt/
 OpenPCDet/output/
-RENO/model/
+*.csv
