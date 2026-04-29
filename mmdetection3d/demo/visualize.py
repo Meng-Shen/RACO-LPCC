@@ -27,6 +27,28 @@ SEMANTICKITTI_COLORS = np.array([
     [180, 180, 80]      # 18: terrain
 ]) / 255.0
 
+SEMANTICKITTI_COLORS = np.array([
+    [70, 100, 180],          # 0: unlabeled
+    [0, 220, 220],    # 1: car
+    [0, 220, 220],    # 2: bicycle
+    [0, 220, 220],      # 3: motorcycle
+    [0, 220, 220],      # 4: truck
+    [0, 220, 220],    # 5: other-vehicle
+    [0, 220, 220],        # 6: person
+    [0, 220, 220],      # 7: bicyclist
+    [255, 0, 255],        # 8: motorcyclist
+    [180, 100, 180],        # 9: road
+    [170, 0, 170],       # 10: parking
+    [200, 110, 0],      # 11: sidewalk
+    [200, 160, 0],      # 12: other-ground
+    [0, 220, 220],      # 13: building
+    [0, 150, 0],      # 14: fence
+    [150, 60, 0],      # 15: lane marker
+    [140, 200, 100],       # 16: vegetation
+    [200, 190, 140],     # 17: trunk
+    [0, 220, 220]      # 18: terrain
+]) / 255.0
+
 
 # ====================== 工具函数 ======================
 def load_point_cloud(bin_path):
@@ -49,7 +71,7 @@ def visualize_and_save(points, labels, save_path):
     plt.scatter(x, y, c=SEMANTICKITTI_COLORS[labels], s=0.05, alpha=0.8)
     plt.axis('off')
     plt.tight_layout()
-    plt.savefig(save_path, bbox_inches='tight', pad_inches=0, facecolor='black')
+    plt.savefig(save_path, bbox_inches='tight', pad_inches=0, facecolor='white')
     plt.close()
     print(f"✅ 保存成功: {save_path}")
 

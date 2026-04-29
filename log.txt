@@ -15,3 +15,52 @@ Password for 'https://Meng-Shen@github.com':  (personal access token)
 git add .
 git commit -m "update"
 git push
+
+
+jucp0_0_0：
+  Label 5 (压缩最狠): 688 帧
+  Label 4 : 418 帧
+  Label 3 : 512 帧
+  Label 2 : 541 帧
+  Label 1 : 399 帧
+  Label 0 (不压缩/基准): 1211 帧
+
+jucp0.001_0.01_0.02：
+  Label 5 (压缩最狠): 1478 帧
+  Label 4 : 577 帧
+  Label 3 : 785 帧
+  Label 2 : 505 帧
+  Label 1 : 222 帧
+  Label 0 (不压缩/基准): 202 帧
+
+jucp0.0015_0.02_0.035：
+  Label 5 (压缩最狠): 1864 帧
+  Label 4 : 620 帧
+  Label 3 : 726 帧
+  Label 2 : 346 帧
+  Label 1 : 125 帧
+  Label 0 (不压缩/基准): 88 帧
+
+jucp0.0025_0.03_0.045：
+  Label 5 (压缩最狠): 2120 帧
+  Label 4 : 624 帧
+  Label 3 : 657 帧
+  Label 2 : 234 帧
+  Label 1 : 81 帧
+  Label 0 (不压缩/基准): 53 帧
+
+jucp0.0035_0.04_0.06：
+  Label 5 (压缩最狠): 2295 帧
+  Label 4 : 635 帧
+  Label 3 : 564 帧
+  Label 2 : 180 帧
+  Label 1 : 60 帧
+  Label 0 (不压缩/基准): 35 帧
+
+jucp0.0045_0.05_0.075：
+  Label 5 (压缩最狠): 2526 帧
+  Label 4 : 591 帧
+  Label 3 : 448 帧
+  Label 2 : 142 帧
+  Label 1 : 40 帧
+  Label 0 (不压缩/基准): 22 帧

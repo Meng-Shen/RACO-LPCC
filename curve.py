@@ -40,6 +40,7 @@ def extract_map_from_log(log_path):
             
             # 匹配: "Car AP_R40@0.70, 0.50, 0.50:"
             m_car = re.search(r'Car\s+AP_R40@0\.70,\s*0\.50,\s*0\.50', line)
+            m_car = re.search(r'Car\s+AP_R40@0\.70,\s*0\.70,\s*0\.70', line)
             if m_car:
                 target_class = 'Car'
                 continue

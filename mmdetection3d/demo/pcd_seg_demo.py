@@ -75,13 +75,13 @@ def main():
     result = inferencer(**call_args)
     foreground_indices = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18] 
 
-    import numpy as np
-    pred_labels = np.array(result['predictions'][0]['pts_semantic_mask'])
+    #import numpy as np
+    #pred_labels = np.array(result['predictions'][0]['pts_semantic_mask'])
 
-    foreground_indices = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18] 
-    fg_mask = np.isin(pred_labels, foreground_indices)
-    bg_mask = ~fg_mask
-    print(pred_labels[5000])
+    #foreground_indices = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18] 
+    #fg_mask = np.isin(pred_labels, foreground_indices)
+    #bg_mask = ~fg_mask
+    #print(pred_labels[5000])
 
 
     if call_args['out_dir'] != '' and not (call_args['no_save_vis']

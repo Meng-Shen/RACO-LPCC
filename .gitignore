@@ -1,5 +1,8 @@
 mmdetection3d/ckpt/
+mmdetection3d/demo/data/
+mmdetection3d/outputs/
 OpenPCDet/data/
 OpenPCDet/tools/ckpt/
 OpenPCDet/output/
 *.csv
+*.png
