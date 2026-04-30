@@ -5,27 +5,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # ====================== SemanticKITTI 19类 颜色 ======================
-SEMANTICKITTI_COLORS = np.array([
-    [0, 0, 0],          # 0: unlabeled
-    [245, 150, 100],    # 1: car
-    [245, 230, 100],    # 2: bicycle
-    [150, 60, 30],      # 3: motorcycle
-    [180, 30, 80],      # 4: truck
-    [255, 255, 255],    # 5: other-vehicle
-    [75, 0, 75],        # 6: person
-    [255, 255, 0],      # 7: bicyclist
-    [255, 0, 0],        # 8: motorcyclist
-    [0, 255, 0],        # 9: road
-    [0, 60, 255],       # 10: parking
-    [0, 255, 255],      # 11: sidewalk
-    [255, 0, 255],      # 12: other-ground
-    [200, 200, 0],      # 13: building
-    [255, 150, 0],      # 14: fence
-    [0, 150, 255],      # 15: lane marker
-    [0, 200, 80],       # 16: vegetation
-    [150, 80, 150],     # 17: trunk
-    [180, 180, 80]      # 18: terrain
-]) / 255.0
 
 SEMANTICKITTI_COLORS = np.array([
     [70, 100, 180],          # 0: unlabeled
@@ -49,6 +28,27 @@ SEMANTICKITTI_COLORS = np.array([
     [0, 220, 220]      # 18: terrain
 ]) / 255.0
 
+SEMANTICKITTI_COLORS = np.array([
+    [255, 0, 0],    # 0  属于FG → 红
+    [255, 0, 0],    # 1  属于FG → 红
+    [255, 0, 0],    # 2  属于FG → 红
+    [255, 0, 0],    # 3  属于FG → 红
+    [255, 0, 0],    # 4  属于FG → 红
+    [255, 0, 0],    # 5  属于FG → 红
+    [255, 0, 0],    # 6  属于FG → 红
+    [255, 0, 0],    # 7  属于FG → 红
+    [0,   0, 0],    # 8  不属于FG → 黑
+    [0,   0, 0],    # 9  不属于FG → 黑
+    [0,   0, 0],    # 10 不属于FG → 黑
+    [0,   0, 0],    # 11 不属于FG → 黑
+    [0,   0, 0],    # 12 不属于FG → 黑
+    [0,   0, 0],    # 13 不属于FG → 黑
+    [0,   0, 0],    # 14 不属于FG → 黑
+    [0,   0, 0],    # 15 不属于FG → 黑
+    [0,   0, 0],    # 16 不属于FG → 黑
+    [255, 0, 0],    # 17 属于FG → 红
+    [255, 0, 0]     # 18 属于FG → 红
+]) / 255.0
 
 # ====================== 工具函数 ======================
 def load_point_cloud(bin_path):
