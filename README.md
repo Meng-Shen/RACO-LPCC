@@ -92,11 +92,12 @@ python check.py \
 cd tools
 python test.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --batch_size 8 --ckpt ckpt/latest_model.pth
 python test.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --batch_size 8 --ckpt /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/ckpt/checkpoint_epoch_10.pth
+
 python single_frame_eval.py \
     --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
-    --ckpt ckpt/pv_rcnn_8369.pth \
-    --frame_id 000008 \
-    --iou_thresh 0.5
+    --ckpt ckpt/latest_model.pth \
+    --frame_id 000035 \
+    --score_thresh 0.5
 
 python test_pos.py \
     --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
@@ -126,6 +127,12 @@ python test_split.py \
     --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
     --ckpt ckpt/latest_model.pth \
     --batch_size 8
+
+# 可视化预测框
+python visualize.py \
+    data/kitti/training/velodyne/000035.bin \
+    tools/000035.pkl \
+    000035
 
 # 根据每帧每码率AP值求jucp，需自己定近无损阈值
 python jucp_split.py --ap_csv split_AP.csv --out_csv jucp0.0045_0.05_0.075.csv

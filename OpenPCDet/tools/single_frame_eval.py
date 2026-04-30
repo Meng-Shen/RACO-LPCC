@@ -2,6 +2,7 @@ import argparse
 import torch
 import numpy as np
 from pathlib import Path
+import pickle  
 
 from pcdet.config import cfg, cfg_from_yaml_file
 from pcdet.datasets import build_dataloader
@@ -14,7 +15,9 @@ def parse_config():
     parser.add_argument('--cfg_file', type=str, required=True, help='Path to model config file')
     parser.add_argument('--ckpt', type=str, required=True, help='Path to model checkpoint')
     parser.add_argument('--frame_id', type=str, required=True, help='KITTI frame ID, e.g., 000008')
-    parser.add_argument('--iou_thresh', type=float, default=0.5, help='3D IoU threshold for True Positive')
+    # [修改] 删除了统一的 iou_thresh，新增 score_thresh
+    parser.add_argument('--score_thresh', type=float, default=0.3, help='Confidence score threshold to filter predictions')
+    parser.add_argument('--save_path', type=str, default='result.pkl', help='Path to save the result.pkl')
     
     args = parser.parse_args()
     cfg_from_yaml_file(args.cfg_file, cfg)
@@ -25,7 +28,7 @@ def main():
     logger = common_utils.create_logger()
     logger.info('----------------- Single Frame Evaluation -----------------')
 
-    # 1. 初始化验证集 Dataset（不加载完整的 Dataloader，只用 Dataset 类）
+    # 1. 初始化验证集 Dataset
     val_set, _, _ = build_dataloader(
         dataset_cfg=cfg.DATA_CONFIG,
         class_names=cfg.CLASS_NAMES,
@@ -65,46 +68,82 @@ def main():
     pred_scores = pred_dict['pred_scores']  # (N,)
     pred_labels = pred_dict['pred_labels']  # (N,)
 
-    # 6. 获取真实标签 (GT Boxes)
+    # ==========================================================
+    # [修改] 使用命令行传入的 score_thresh 进行全局过滤
+    # ==========================================================
+    keep_mask = pred_scores >= args.score_thresh
+    pred_boxes = pred_boxes[keep_mask]
+    pred_scores = pred_scores[keep_mask]
+    pred_labels = pred_labels[keep_mask]
+    
+    logger.info(f"After score filtering (>= {args.score_thresh}): {len(pred_boxes)} bounding boxes left.")
+    # ==========================================================
+
+
+    # 6. 将结果格式化并保存为 result.pkl，供后续可视化使用
+    pred_boxes_np = pred_boxes.cpu().numpy()
+    pred_scores_np = pred_scores.cpu().numpy()
+    pred_labels_np = pred_labels.cpu().numpy()
+    
+    pred_names = np.array([cfg.CLASS_NAMES[l - 1] for l in pred_labels_np])
+
+    frame_result = {
+        'frame_id': args.frame_id,
+        'boxes_lidar': pred_boxes_np,
+        'score': pred_scores_np,
+        'pred_labels': pred_labels_np,
+        'name': pred_names
+    }
+
+    args.save_path = args.frame_id + '.pkl'
+    with open(args.save_path, 'wb') as f:
+        pickle.dump([frame_result], f)
+    
+    logger.info(f"✅ Prediction results successfully saved to: {args.save_path}")
+
+    # 7. 获取真实标签 (GT Boxes) 进行后续评估
     gt_boxes_with_classes = data_dict['gt_boxes'][0] # (M, 8) 最后一列是 class label
-    # 过滤掉全为0的 padding GT boxes
     mask = gt_boxes_with_classes[:, :7].sum(dim=1) != 0
     gt_boxes = gt_boxes_with_classes[mask, :7]
     gt_labels = gt_boxes_with_classes[mask, 7]
 
-    logger.info(f"Found {len(gt_boxes)} GT objects and predicted {len(pred_boxes)} objects.")
+    logger.info(f"Found {len(gt_boxes)} GT objects and predicted {len(pred_boxes)} valid objects.")
 
     if len(pred_boxes) == 0 or len(gt_boxes) == 0:
-        logger.info("No predictions or no GT boxes. Skipping IoU calculation.")
+        logger.info("No valid predictions or no GT boxes. Skipping IoU calculation.")
         return
 
-    # 7. 计算 3D IoU (调用 CUDA 算子)
-    # ious shape: (num_preds, num_gts)
+    # 8. 计算 3D IoU (调用 CUDA 算子)
     ious = iou3d_nms_utils.boxes_iou3d_gpu(pred_boxes, gt_boxes)
     
-    # 8. 匹配与评估逻辑 (基于匈牙利匹配或简单的贪心匹配，这里展示最高IoU贪心匹配)
+    # 9. 匹配与评估逻辑
     max_ious, gt_match_indices = ious.max(dim=1)
     
     tp_count = 0
     fp_count = 0
     
-    logger.info(f"--- Prediction Analysis (IoU Threshold: {args.iou_thresh}) ---")
+    logger.info("--- Prediction Analysis (Dynamic IoU Thresholds) ---")
     for i in range(len(pred_boxes)):
         iou = max_ious[i].item()
         matched_gt_idx = gt_match_indices[i].item()
         pred_cls = cfg.CLASS_NAMES[pred_labels[i].item() - 1]
         score = pred_scores[i].item()
         
-        if iou >= args.iou_thresh:
+        # ==========================================================
+        # [修改] 动态判定当前框的 IoU 阈值：Car 为 0.7，其余为 0.5
+        # ==========================================================
+        current_iou_thresh = 0.7 if pred_cls.lower() == 'car' else 0.5
+        
+        if iou >= current_iou_thresh:
             gt_cls = cfg.CLASS_NAMES[int(gt_labels[matched_gt_idx].item()) - 1]
             if pred_cls == gt_cls:
-                logger.info(f"[TP] Pred {i} ({pred_cls}, Score: {score:.3f}) matched GT {matched_gt_idx} ({gt_cls}) with IoU: {iou:.4f}")
+                logger.info(f"[TP] Pred {i} ({pred_cls}, Score: {score:.3f}) matched GT {matched_gt_idx} ({gt_cls}) with IoU: {iou:.4f} (Thresh: {current_iou_thresh})")
                 tp_count += 1
             else:
                 logger.info(f"[FP - Class Error] Pred {i} ({pred_cls}) matched GT {matched_gt_idx} ({gt_cls}) with IoU: {iou:.4f}")
                 fp_count += 1
         else:
-            logger.info(f"[FP - Low IoU/Background] Pred {i} ({pred_cls}, Score: {score:.3f}). Max GT IoU: {iou:.4f}")
+            logger.info(f"[FP - Low IoU/Background] Pred {i} ({pred_cls}, Score: {score:.3f}). Max GT IoU: {iou:.4f} (Thresh: {current_iou_thresh})")
             fp_count += 1
 
     fn_count = len(gt_boxes) - tp_count
