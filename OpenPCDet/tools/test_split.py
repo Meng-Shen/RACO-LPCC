@@ -166,7 +166,7 @@ def main():
     model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=test_set)
     
     quant_map = [
-        (1.5/256, 1/512), (2/256, 1/512),(3/256, 1/512),(4/256, 1/512), 
+        (1/256, 0), (2/256, 0),(3/256, 0),(1/64, 0), (1/64, 1/512),
         (1/64, 1.25/512), (1/64, 1.5/512)
     ]
 

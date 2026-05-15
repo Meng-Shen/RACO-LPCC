@@ -62,13 +62,35 @@ def load_json_labels(json_path):
     return np.array(data['pts_semantic_mask'], dtype=np.int32)
 
 
-def visualize_and_save(points, labels, save_path):
+# 👉 修改点 1：增加 x_range 和 y_range 参数
+def visualize_and_save(points, labels, save_path, x_range=None, y_range=None):
+    
+    # 🌟 优化与安全处理：不仅要过滤点，必须同步过滤对应的颜色标签(labels)！
+    if x_range is not None:
+        mask_x = (points[:, 0] >= x_range[0]) & (points[:, 0] <= x_range[1])
+        points = points[mask_x]
+        labels = labels[mask_x]  # 同步过滤标签
+        
+    if y_range is not None:
+        mask_y = (points[:, 1] >= y_range[0]) & (points[:, 1] <= y_range[1])
+        points = points[mask_y]
+        labels = labels[mask_y]  # 同步过滤标签
+
     x = points[:, 0]
     y = points[:, 1]
-    z = points[:, 2]
+    # z = points[:, 2] # 俯视图中用不到Z轴，可以注释掉
 
     plt.figure(figsize=(16, 14), dpi=150)
-    plt.scatter(x, y, c=SEMANTICKITTI_COLORS[labels], s=0.05, alpha=0.8)
+    ax = plt.gca()
+    
+    ax.scatter(x, y, c=SEMANTICKITTI_COLORS[labels], s=0.05, alpha=0.8)
+    
+    # 🌟 修改点 2：硬性限制画布的显示范围
+    if x_range is not None:
+        ax.set_xlim(x_range)
+    if y_range is not None:
+        ax.set_ylim(y_range)
+
     plt.axis('off')
     plt.tight_layout()
     plt.savefig(save_path, bbox_inches='tight', pad_inches=0, facecolor='white')
@@ -88,6 +110,15 @@ if __name__ == "__main__":
 
     points = load_point_cloud(bin_file)
     labels = load_json_labels(json_file)
-    img_path = os.path.splitext(json_file)[0] + ".png"
+    
+    # 👇👇👇 在这里手动输入你想要的 X 和 Y 坐标范围 👇👇👇
+    X_RANGE = (-30, 30)  # 例如 X轴(前后) -20米 到 20米
+    Y_RANGE = (-30, 30)  # 例如 Y轴(左右) -20米 到 20米
+    # 如果某一个轴不想限制，可以设置为 None，例如：Y_RANGE = None
+    # 👆👆👆 -------------------------------------- 👆👆👆
 
-    visualize_and_save(points, labels, img_path)
+    # 文件名加上 cropped 后缀以区分
+    img_path = os.path.splitext(json_file)[0] + "_cropped.png"
+
+    # 将坐标范围参数传进去
+    visualize_and_save(points, labels, img_path, x_range=X_RANGE, y_range=Y_RANGE)

@@ -98,7 +98,11 @@ class Base3DInferencer(BaseInferencer):
         cfg.model.train_cfg = None
         model = MODELS.build(cfg.model)
 
-        checkpoint = load_checkpoint(model, weights, map_location='cpu')
+        #checkpoint = load_checkpoint(model, weights, map_location='cpu')
+        if weights is not None:
+            checkpoint = load_checkpoint(model, weights, map_location='cpu')
+        else:
+            checkpoint = {}  # 如果没有提供权重，给一个空字典兜底
         if 'dataset_meta' in checkpoint.get('meta', {}):
             # mmdet3d 1.x
             model.dataset_meta = checkpoint['meta']['dataset_meta']

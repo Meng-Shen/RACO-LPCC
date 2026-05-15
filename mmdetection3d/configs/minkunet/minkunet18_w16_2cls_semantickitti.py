@@ -25,12 +25,13 @@ for raw_label, cls_19 in standard_learning_map.items():
         label_mapping[raw_label] = 0   # 否则，设为背景 (0)
 
 # 将动态生成的 label_mapping 塞给 metainfo
-metainfo = dict(
-    classes=('background', 'foreground'),
-    palette=[[128, 128, 128], [255, 0, 0]],  # 背景灰色，前景红色
-    seg_label_mapping=label_mapping,
-    max_label=259
-)
+#metainfo = dict(
+#    classes=('background', 'foreground'),
+#    palette=[[128, 128, 128], [255, 0, 0]],  # 背景灰色，前景红色
+#    seg_label_mapping=label_mapping,
+#    max_label=259
+#)
+metainfo=dict(classes=('road', 'car'))
 
 train_dataloader = dict(dataset=dict(metainfo=metainfo))
 val_dataloader = dict(dataset=dict(metainfo=metainfo))

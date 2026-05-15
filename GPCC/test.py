@@ -1,6 +1,9 @@
 # GPCC/test.py
 import os
 import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(current_dir)
+sys.path.append(root_dir)
 import glob
 import time
 import argparse
@@ -11,8 +14,8 @@ import open3d as o3d
 from data_utils.geometry.inout import write_ply_o3d
 
 # 导入 GPCC 工具和评测工具
-from gpcc_geo import gpcc_encode, gpcc_decode
-from pc_error_geo import pc_error
+from extention.gpcc_geo import gpcc_encode, gpcc_decode
+from extention.pc_error_geo import pc_error
 
 
 def read_kitti_bin(filedir):
@@ -33,7 +36,7 @@ class Tester():
         filename = os.path.split(filedir)[-1].split('.')[0]
         
         # 10 种量化步长
-        posQuantscale_list = [1, 1/2, 1/4, 1/8, 1/16, 1/32, 1/64, 1/128, 1/256, 1/512]
+        posQuantscale_list = [1/64, 1.5/128, 1/128, 1.5/256, 1/256, 1.5/512, 1/512]
         #posQuantscale_list = [1/8] # 
         print(f'=====set bitrates=====\nposQuantscale_list: {posQuantscale_list}')
         
@@ -66,7 +69,7 @@ class Tester():
             print(f'[{filename}] Encoding with posQuantscale={posQuantscale} ...')
             gpcc_dir = os.path.dirname(os.path.abspath(__file__))
             cfg_path = os.path.join(gpcc_dir, "kitti.cfg")
-            log_enc = gpcc_encode(tmp_ref_normal_ply, tmp_bitstream_bin, posQuantscale=posQuantscale , cfgdir=cfg_path)
+            log_enc = gpcc_encode(tmp_ref_normal_ply, tmp_bitstream_bin, posQuantscale=posQuantscale , cfgdir="/public/DATA/sm/RACO-LPCC/extention/kitti.cfg")
             
             # B. 解压缩 (Decode)
             # 解码出来的 tmp_dec_out_ply 也会处在放大 1000 倍的整数尺度下

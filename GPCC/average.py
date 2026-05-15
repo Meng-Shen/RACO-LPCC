@@ -47,11 +47,13 @@ def main():
     all_results_df.to_csv(detail_csv, index=False)
     print(f"[*] 完整明细已保存至: {detail_csv}")
 
-    # 按量化步长 (posQuantscale) 分组并求平均值
-    mean_results = all_results_df.groupby('posQuantscale').mean(numeric_only=True).reset_index()
+    # 按量化步长 (posQuantscale) 分组并求平均值combo_id
+    #mean_results = all_results_df.groupby('posQuantscale').mean(numeric_only=True).reset_index()
+    mean_results = all_results_df.groupby('combo_id').mean(numeric_only=True).reset_index()
 
     # 按照 posQuantscale 从大到小排序 (1.0 -> 0.001953)
-    mean_results = mean_results.sort_values(by='posQuantscale', ascending=False)
+    #mean_results = mean_results.sort_values(by='posQuantscale', ascending=False)
+    mean_results = mean_results.sort_values(by='combo_id', ascending=False)
 
     # 保存平均值表
     avg_csv = os.path.join(args.results_dir, 'gpcc_average_results.csv')

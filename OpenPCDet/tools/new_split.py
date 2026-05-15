@@ -13,7 +13,7 @@ import multiprocessing
 # =========================================================
 W_GT_ANNOS = None
 W_DT_ANNOS_ALL = None
-W_BASELINE_IDX = 0  # 0 对应 Label 0 (最大码率/原图)
+W_BASELINE_IDX = 0  # 0 对应 Label 0 (最大码率/原图) → 现在7个，基线是6
 W_CLASSES = ['Car', 'Pedestrian', 'Cyclist']
 
 def init_worker(cfg_file, split_file, eval_dir):
@@ -42,26 +42,23 @@ def init_worker(cfg_file, split_file, eval_dir):
         )
         W_GT_ANNOS = [info['annos'] for info in dataset.kitti_infos]
 
-        # 严格遵照之前生成 CSV 时的目录顺序
+        # 你现在的 7 组合
         original_quant_map = [
-            (1.5/256, 1/512), # combo 0 (最强压缩)
-            (2/256, 1/512),   # combo 1
-            (3/256, 1/512),   # combo 2
-            (4/256, 1/512),   # combo 3
-            (1/64, 1.25/512), # combo 4
-            (1/64, 1.5/512)   # combo 5 (最大码率/原图)
+            (1/256, 0), (2/256, 0),(3/256, 0),(1/64, 0), (1/64, 1/512),
+            (1/64, 1.25/512), (1/64, 1.5/512)
         ]
 
         eval_dir_path = Path(eval_dir)
         W_DT_ANNOS_ALL = {}
 
-        for combo_idx in range(6):
+        # 👉 这里从 6 改成 7
+        for combo_idx in range(7):
             scale_fg, scale_bg = original_quant_map[combo_idx]
             folder_name = f'combo_{combo_idx}_fg_{scale_fg:.6f}_bg_{scale_bg:.6f}'
             pkl_path = eval_dir_path / folder_name / 'result.pkl'
             
-            # 【关键映射】：让 Label 0 = 原图(combo_5), Label 5 = 最强压缩(combo_0)
-            target_label = 5 - combo_idx  
+            # 【关键映射】：7 个组合 → Label 0~6，原图是 combo_6 → Label 0
+            target_label = 6 - combo_idx  
             with open(pkl_path, 'rb') as f:
                 W_DT_ANNOS_ALL[target_label] = pickle.load(f)
 
@@ -71,7 +68,7 @@ def init_worker(cfg_file, split_file, eval_dir):
 
 def evaluate_frame_worker(frame_idx):
     """
-    评测函数：只单独降级第 frame_idx 帧，计算出 6 个码率下的全局 AP
+    评测函数：只单独降级第 frame_idx 帧，计算出 7 个码率下的全局 AP
     """
     devnull = open(os.devnull, 'w')
     old_stdout = sys.stdout
@@ -87,7 +84,8 @@ def evaluate_frame_worker(frame_idx):
         # 提取全集均为最大码率(Baseline)的预测结果拷贝
         base_dt_annos = list(W_DT_ANNOS_ALL[W_BASELINE_IDX])
         
-        for b in range(6):
+        # 👉 这里从 6 改成 7
+        for b in range(7):
             if b == W_BASELINE_IDX:
                 mixed_dt_annos = base_dt_annos
             else:
@@ -99,7 +97,7 @@ def evaluate_frame_worker(frame_idx):
                 W_GT_ANNOS, mixed_dt_annos, W_CLASSES
             )
 
-            # 提取 3D Moderate AP
+            # 提取 3D Moderate AP → 自动生成 L0~L6
             row_result[f'L{b}_Car_AP'] = float(ap_dict.get('Car_3d/moderate_R40', 0.0))
             row_result[f'L{b}_Ped_AP'] = float(ap_dict.get('Pedestrian_3d/moderate_R40', 0.0))
             row_result[f'L{b}_Cyc_AP'] = float(ap_dict.get('Cyclist_3d/moderate_R40', 0.0))
@@ -132,9 +130,9 @@ def main():
     
     print("[1/3] Detecting number of frames...")
     
-    # 我们只需读取原图(combo_5)的 pkl 来快速知道有几帧，主进程绝不碰 PyTorch
+    # 👉 7 组合，原图是 combo_6
     scale_fg, scale_bg = 1/64, 1.5/512
-    test_pkl = Path(args.eval_dir) / f'combo_5_fg_{scale_fg:.6f}_bg_{scale_bg:.6f}' / 'result.pkl'
+    test_pkl = Path(args.eval_dir) / f'combo_6_fg_{scale_fg:.6f}_bg_{scale_bg:.6f}' / 'result.pkl'
     
     if not test_pkl.exists():
         print(f"❌ Error: Cannot find {test_pkl}")
@@ -165,23 +163,17 @@ def main():
         for res in tqdm(pool.imap_unordered(evaluate_frame_worker, range(num_frames)), total=num_frames, desc="Calculating global APs"):
             if res is not None:
                 final_results.append(res)
-                
-                # ===== 【新增的代码：实时打印单帧结果】 =====
-                # 提取一些关键指标进行展示，比如 Car 类在原图(L0)和最狠压缩(L5)下的 AP 对比
+
                 frame_id = res['frame_id']
                 l0_car = res['L0_Car_AP']
-                l5_car = res['L5_Car_AP']
+                l6_car = res['L6_Car_AP']
                 
-                # 如果你想看全部 18 个指标，可以改成 tqdm.write(str(res))
-                # 这里为你格式化了一个非常直观的摘要输出
-                msg = f"✅ 帧 {frame_id} 处理完毕 | 车辆AP: 原图(L0)={l0_car:.4f} ➔ 极限压缩(L5)={l5_car:.4f}"
+                msg = f"✅ 帧 {frame_id} 处理完毕 | 车辆AP: 原图(L0)={l0_car:.4f} ➔ 极限压缩(L6)={l6_car:.4f}"
                 tqdm.write(msg)
-                # ============================================
 
     print("[3/3] Saving Final AP Matrix to CSV...")
     df = pd.DataFrame(final_results)
     
-    # 根据帧索引排好序，并丢弃临时辅导列 frame_idx
     df = df.sort_values('frame_idx').drop(columns=['frame_idx'])
     df.to_csv(args.out_csv, index=False)
     
