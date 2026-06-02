@@ -1,0 +1,218 @@
+安装参考：[mmdetection3d](https://github.com/open-mmlab/mmdetection3d)
+
+
+
+点云分割命令：
+cd mmdetection3d
+python demo/pcd_seg_demo.py \
+    demo/data/000008.bin \
+    configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py \
+    ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth \
+    --no-save-vis \
+    --no-save-pred
+可视化分割结果：
+python demo/visualize.py demo/data/000008.bin outputs/preds/000008.json
+
+python tools/train.py configs/minkunet/minkunet18_w16_2cls_semantickitti.py \
+    --work-dir work_dirs/minkunet18_w16_2cls
+# 假设使用 4 张卡
+CUDA_VISIBLE_DEVICES=0,1,2,5 bash tools/dist_train.sh \
+    configs/minkunet/minkunet18_w16_2cls_semantickitti.py \
+    4 \
+    --work-dir work_dirs/minkunet18_w16_2cls
+
+python measure_speed.py configs/minkunet/minkunet18_w16_2cls_semantickitti.py
+
+python measure_speed.py configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py
+
+点云压缩：
+
+gpcc压缩点云：
+cd GPCC
+python test.py \
+    --testdata='../mmdetection3d/demo/data' \
+    --resolution=80000 \
+    --output='output' \
+    --results='results'
+
+python print_pc.py \
+    --testdata='../mmdetection3d/demo/data'
+
+python single_split.py \
+    ../mmdetection3d/demo/data/000000.bin \
+    ../mmdetection3d/configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py \
+    ../mmdetection3d/ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth \
+    --fg-quant 0.125 \
+    --bg-quant 0.125 \
+    --gpcc-cfg kitti.cfg \
+    --out-dir output
+
+python test_split.py \
+    --testdata='../../Dataset/kitti/training/velodyne/0012' \
+    --model='../mmdetection3d/configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py' \
+    --weights='../mmdetection3d/ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth'
+
+
+
+分配反射率：
+cd RACO-LPCC
+python nn.py \
+    --input ./GPCC/output \
+    --ref ../Dataset/kitti/training/velodyne/0012 \
+    --output ../Dataset/kitti/training/w_0012 \
+    --mode r6
+
+测试点云关系
+python check.py \
+    --dir1 mmdetection3d/demo/data/000000.bin \
+    --dir2 GPCC/output/000000_R0.bin
+
+!!! 可以只考虑点云量化步长、不进行任何方法的压缩，可以考虑引入
+坐标偏移模块。
+！！！只把邻域点云按顺序排列，在MBPTrack3D/tasks/mbp_task.py225行已改好。
+cd OpenPCDet
+cd tools
+python test.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --batch_size 8 --ckpt ckpt/latest_model.pth
+python test.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --batch_size 8 --ckpt /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/ckpt/checkpoint_epoch_10.pth
+
+python single_frame_eval.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --ckpt ckpt/latest_model.pth \
+    --frame_id 000035 \
+    --score_thresh 0.5
+
+python test_pos.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --batch_size 8 \
+    --ckpt ckpt/latest_model.pth
+
+# 根据各文件各压缩码率的预测框中间结果求每帧每个码率下的整体AP值（其他帧取最大码率）
+python new_split.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --split_file ../data/kitti/ImageSets/val.txt \
+    --eval_dir ../output/kitti_models/pv_rcnn/default/eval/epoch_no_number/val/default \
+    --out_csv split_AP.csv \
+    --workers 64
+
+python test_jucp.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --batch_size 8 \
+    --ckpt ckpt/latest_model.pth \
+    --jucp_csv jucp_labels.csv
+
+python generate_masks.py \
+    --seg_cfg_file ../../mmdetection3d/configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py \
+    --seg_ckpt ../../mmdetection3d/ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth
+
+# 得到逐点云逐码率预测框文件，搭配new_split.py使用
+python test_split.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --ckpt ckpt/latest_model.pth \
+    --batch_size 8
+
+# 用前背景分离量化步长测试一帧点云，保存量化点云和结果文件
+python single_frame_eval_split.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --ckpt ckpt/latest_model.pth \
+    --frame_id 000024 \
+    --mask_dir ../output/eval/seg_masks \
+    --data_path ../data/kitti/training/velodyne/000024.bin
+
+# 可视化量化点云以及预测框
+python visualize.py \
+    tools/000024_quantized.npy \
+    tools/000024.pkl \
+    000024
+
+# 可视化量化点云前景和背景部分
+python visualize.py \
+    tools/000008_quantized_bg.npy \
+    tools/000008.pkl \
+    000008
+
+# 可视化原始点云
+python visualize.py \
+    data/kitti/training/velodyne/000008.bin \
+    tools/000008.pkl \
+    000008
+
+# 可视化原始点云和真实框
+python vis_label.py \
+    data/kitti/training/velodyne/000024.bin \
+    data/kitti/training/label_2/000024.txt \
+    data/kitti/training/calib/000024.txt \
+    000024
+
+
+# 根据每帧每码率AP值求jucp，需自己定近无损阈值
+python jucp_split.py --ap_csv split_AP.csv --out_csv jucp0.0045_0.05_0.075.csv
+
+# 根据jucp标签跑语义分割协助压缩方案，得到AP性能
+python test_jucp_split.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --batch_size 8 \
+    --ckpt ckpt/latest_model.pth \
+    --jucp_csv jucp0.0045_0.05_0.075.csv \
+    --mask_dir ../output/eval/seg_masks \
+    --workers 4
+
+python test_jucp_split2.py \
+    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
+    --batch_size 8 \
+    --ckpt ckpt/latest_model.pth \
+    --jucp_csv jucp_split_labels.csv \
+    --mask_dir ../output/eval/seg_masks
+
+python count.py 
+
+python train.py --cfg_file cfgs/kitti_models/pv_rcnn.yaml --batch_size 4 --pretrained_model ckpt/pv_rcnn_8369.pth
+
+python -m pcdet.datasets.kitti.kitti_dataset create_kitti_infos tools/cfgs/dataset_configs/kitti_dataset.yaml
+
+目标检测环境安装问题：
+旧setuptools 82.0.1 ->降低
+pip install spconv-cu116
+pip install kornia==0.6.5 -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+面向目标检测的点云压缩：
+gpcc原方法多码率压缩：
+python test_gpcc.py \
+    --testdata='../OpenPCDet/data/kitti/training/velodyne'
+
+python test_split.py \
+    --testdata='../OpenPCDet/data/kitti/training/velodyne' \
+    --cfg_file='../mmdetection3d/configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py' \
+    --ckpt='../mmdetection3d/ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth'
+
+python dec_split.py \
+    --testdata='../OpenPCDet/data/kitti/training/velodyne' \
+    --cfg_file='../mmdetection3d/configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py' \
+    --ckpt='../mmdetection3d/ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth'
+
+
+python average.py --results_dir ./results_split
+
+# 曲线图
+python curve.py \
+    --log /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval/epoch_no_number/val/default/log_eval_split_20260417-142105.txt \
+    --csv GPCC/result/gpcc_average_results.csv \
+    --out mAP_vs_bpp.png
+
+python curve2.py \
+    --results_dir GPCC/results_split \
+    --log /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval/split6.txt
+
+python compare_curves.py \
+    --gpcc_log /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval/pos10.txt \
+    --gpcc_csv GPCC/results_gpcc/gpcc_average_results.csv \
+    --split_log /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval/split6.txt \
+    --split_csv GPCC/results_split/gpcc_average_results.csv \
+    --jucp_txt_dir /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval \
+    --jucp_csv_dir /public/DATA/sm/RACO-LPCC/OpenPCDet/tools \
+    --out compare_3method.png
+
+python simple_curves.py \
+    --gpcc_log /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval/pos10.txt \
+    --gpcc_csv GPCC/results_gpcc/gpcc_average_results.csv \
+    --split_log /public/DATA/sm/RACO-LPCC/OpenPCDet/output/kitti_models/pv_rcnn/default/eval/split7.txt \
+    --split_csv GPCC/results_split/gpcc_average_results.csv
