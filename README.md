@@ -86,29 +86,11 @@ python test_pos.py \
     --batch_size 8 \
     --ckpt ckpt/latest_model.pth
 
-# 根据各文件各压缩码率的预测框中间结果求每帧每个码率下的整体AP值（其他帧取最大码率）
-python new_split.py \
-    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
-    --split_file ../data/kitti/ImageSets/val.txt \
-    --eval_dir ../output/kitti_models/pv_rcnn/default/eval/epoch_no_number/val/default \
-    --out_csv split_AP.csv \
-    --workers 64
-
 python test_jucp.py \
     --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
     --batch_size 8 \
     --ckpt ckpt/latest_model.pth \
     --jucp_csv jucp_labels.csv
-
-python generate_masks.py \
-    --seg_cfg_file ../../mmdetection3d/configs/minkunet/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti.py \
-    --seg_ckpt ../../mmdetection3d/ckpt/minkunet34_w32_minkowski_8xb2-laser-polar-mix-3x_semantickitti_20230514_202236-839847a8.pth
-
-# 得到逐点云逐码率预测框文件，搭配new_split.py使用
-python test_split.py \
-    --cfg_file cfgs/kitti_models/pv_rcnn.yaml \
-    --ckpt ckpt/latest_model.pth \
-    --batch_size 8
 
 # 用前背景分离量化步长测试一帧点云，保存量化点云和结果文件
 python single_frame_eval_split.py \
@@ -142,10 +124,6 @@ python vis_label.py \
     data/kitti/training/label_2/000024.txt \
     data/kitti/training/calib/000024.txt \
     000024
-
-
-# 根据每帧每码率AP值求jucp，需自己定近无损阈值
-python jucp_split.py --ap_csv split_AP.csv --out_csv jucp0.0045_0.05_0.075.csv
 
 # 根据jucp标签跑语义分割协助压缩方案，得到AP性能
 python test_jucp_split.py \
