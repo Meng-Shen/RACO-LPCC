@@ -10,8 +10,8 @@ from pathlib import Path
 def parse_args():
     parser = argparse.ArgumentParser(description="Plot Comparison of Baseline, Split, and JUCP GPCC.")
     # Baseline GPCC 的文件路径
-    parser.add_argument('--gpcc_log', type=str, required=True, help='Path to Baseline GPCC log file')
-    parser.add_argument('--gpcc_csv', type=str, required=True, help='Path to Baseline gpcc_average_results.csv')
+    parser.add_argument('--gpcc_log', type=str, default=None, help='Path to Baseline GPCC log file')
+    parser.add_argument('--gpcc_csv', type=str, default=None, help='Path to Baseline gpcc_average_results.csv')
     
     # Split GPCC 的文件路径
     parser.add_argument('--split_log', type=str, required=True, help='Path to Split test_split.py log file')
@@ -84,27 +84,75 @@ def extract_single_map(log_path):
                     target_class = None
     return aps
 
+def extract_jucp_csv_name(log_path):
+    """ 从 test_jucp_split.py 的日志中提取本次使用的 JUCP CSV 文件名 """
+    with open(log_path, 'r') as f:
+        for line in f:
+            m = re.search(r'jucp_csv\s+(\S+\.csv)', line)
+            if m:
+                return m.group(1)
+    return None
+
+def find_jucp_log_files(jucp_txt_dir):
+    """ 同时兼容旧版 jucp*.txt 和新版 OpenPCDet log_eval_*.txt 日志 """
+    patterns = ['jucp*.txt', 'log_eval_*.txt']
+    files = []
+    seen = set()
+    for pattern in patterns:
+        for file_path in glob.glob(os.path.join(jucp_txt_dir, pattern)):
+            if file_path in seen:
+                continue
+            seen.add(file_path)
+            files.append(file_path)
+    return files
+
 def get_closest_bpp(target_scale, csv_df):
     scales = csv_df['posQuantscale'].values
     idx = np.argmin(np.abs(scales - target_scale))
     return csv_df['bpp'].iloc[idx]
 
+def get_adaptive_ylim(*curves):
+    values = []
+    for curve in curves:
+        values.extend([v for v in curve if not pd.isna(v)])
+
+    if not values:
+        return 0, 1
+
+    y_min = min(values)
+    y_max = max(values)
+
+    if np.isclose(y_min, y_max):
+        margin = max(abs(y_max) * 0.1, 1.0)
+    else:
+        margin = (y_max - y_min) * 0.1
+
+    bottom = max(0, y_min - margin)
+    top = y_max + margin
+    return bottom, top
+
 def main():
     args = parse_args()
 
     # ==================== 1. 处理 Baseline 数据 ====================
-    print("[*] Parsing Baseline Data...")
-    gpcc_map = extract_map_from_log(args.gpcc_log, is_split=False)
-    gpcc_df = pd.read_csv(args.gpcc_csv)
-    gpcc_pts = []
-    for scale, aps in gpcc_map.items():
-        if not aps: continue
-        bpp = get_closest_bpp(scale, gpcc_df)
-        gpcc_pts.append((bpp, aps.get('Car', np.nan), aps.get('Pedestrian', np.nan), aps.get('Cyclist', np.nan)))
-    gpcc_pts.sort(key=lambda x: x[0])
-    
-    gpcc_bpps = [p[0] for p in gpcc_pts]
-    gpcc_cars, gpcc_peds, gpcc_cycs = [p[1] for p in gpcc_pts], [p[2] for p in gpcc_pts], [p[3] for p in gpcc_pts]
+    use_baseline = bool(args.gpcc_log and args.gpcc_csv)
+    gpcc_bpps, gpcc_cars, gpcc_peds, gpcc_cycs = [], [], [], []
+
+    if use_baseline:
+        print("[*] Parsing Baseline Data...")
+        gpcc_map = extract_map_from_log(args.gpcc_log, is_split=False)
+        gpcc_df = pd.read_csv(args.gpcc_csv)
+        gpcc_pts = []
+        for scale, aps in gpcc_map.items():
+            if not aps: continue
+            bpp = get_closest_bpp(scale, gpcc_df)
+            gpcc_pts.append((bpp, aps.get('Car', np.nan), aps.get('Pedestrian', np.nan), aps.get('Cyclist', np.nan)))
+        gpcc_pts.sort(key=lambda x: x[0])
+        
+        gpcc_bpps = [p[0] for p in gpcc_pts]
+        gpcc_cars, gpcc_peds, gpcc_cycs = [p[1] for p in gpcc_pts], [p[2] for p in gpcc_pts], [p[3] for p in gpcc_pts]
+    else:
+        print("[*] Skipping Baseline Data: --gpcc_log and --gpcc_csv were not both provided.")
 
     # ==================== 2. 处理 Split 数据 ====================
     print("[*] Parsing Semantic Split Data...")
@@ -130,14 +178,15 @@ def main():
     # ==================== 3. 处理 JUCP 数据 ====================
     print("[*] Parsing JUCP Method Data...")
     jucp_pts = []
-    jucp_txt_files = glob.glob(os.path.join(args.jucp_txt_dir, 'jucp*.txt'))
+    jucp_txt_files = find_jucp_log_files(args.jucp_txt_dir)
     
     if not jucp_txt_files:
-        print(f"[!] Warning: No jucp*.txt files found in {args.jucp_txt_dir}")
+        print(f"[!] Warning: No JUCP log files found in {args.jucp_txt_dir}")
     
     for txt_file in jucp_txt_files:
-        base_name = Path(txt_file).stem  # 例如：jucp0
-        csv_file = os.path.join(args.jucp_csv_dir, f"{base_name}.csv")
+        base_name = Path(txt_file).stem  # 例如：jucp0 或 log_eval_20260601-123000
+        csv_name = extract_jucp_csv_name(txt_file)
+        csv_file = os.path.join(args.jucp_csv_dir, csv_name) if csv_name else os.path.join(args.jucp_csv_dir, f"{base_name}.csv")
         
         if not os.path.exists(csv_file):
             print(f"[-] Skipping {base_name}: CSV file not found.")
@@ -187,13 +236,6 @@ def main():
         'Cyclist': {'split': split_cycs, 'gpcc': gpcc_cycs, 'jucp': jucp_cycs}
     }
 
-    # 核心修改：为不同类别定义不同的纵坐标上限
-    y_max_dict = {
-        'Car': 100,
-        'Pedestrian': 60,
-        'Cyclist': 80
-    }
-
     base_out_path = Path(args.out)
 
     for cls in classes:
@@ -204,8 +246,9 @@ def main():
                  marker='s', linestyle='-.', markersize=6, linewidth=2.5, label='Semantic-Split')
                  
         # 绘制 Baseline
-        plt.plot(gpcc_bpps, data_dict[cls]['gpcc'], color=method_colors['Baseline'], 
-                 marker='X', linestyle='--', markersize=8, linewidth=2, alpha=0.7, label='Baseline GPCC')
+        if use_baseline:
+            plt.plot(gpcc_bpps, data_dict[cls]['gpcc'], color=method_colors['Baseline'], 
+                     marker='X', linestyle='--', markersize=8, linewidth=2, alpha=0.7, label='Baseline GPCC')
                  
         # 绘制 JUCP
         if jucp_bpps:
@@ -214,13 +257,17 @@ def main():
 
         plt.xlabel('Bitrate / Bits Per Point (BPP)', fontsize=14)
         plt.ylabel(f'{cls} 3D AP (Moderate Difficulty) [%]', fontsize=14)
-        plt.title(f'Performance Comparison: Baseline vs. Split vs. JUCP ({cls})', fontsize=16, pad=15)
+        title_methods = 'Baseline vs. Split vs. JUCP' if use_baseline else 'Split vs. JUCP'
+        plt.title(f'Performance Comparison: {title_methods} ({cls})', fontsize=16, pad=15)
         
         plt.grid(True, linestyle='--', alpha=0.6)
         plt.legend(loc='lower right', fontsize=12) 
         
-        # 核心修改：应用字典中对应的最大值
-        plt.ylim(bottom=0, top=y_max_dict[cls])
+        y_curves = [data_dict[cls]['split'], data_dict[cls]['jucp']]
+        if use_baseline:
+            y_curves.append(data_dict[cls]['gpcc'])
+        y_bottom, y_top = get_adaptive_ylim(*y_curves)
+        plt.ylim(bottom=y_bottom, top=y_top)
         
         plt.tight_layout()
         
@@ -232,7 +279,7 @@ def main():
         plt.close()
         print(f"[+] 成功保存 {cls} 类别的曲线图至: {final_out_path}")
 
-    print("\n[+] 完美！三个目标的单独对比曲线图已全部生成！")
+    print("\n[+] 三个目标的单独对比曲线图已全部生成！")
 
 if __name__ == '__main__':
     main()

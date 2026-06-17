@@ -50,8 +50,10 @@ python train_sparse_cost_proxy.py \
   --ap_csv split_AP_train.csv \
   --test_split ../data/kitti/ImageSets/val.txt \
   --test_ap_csv test/split_AP.csv \
+  --split_test_for_val \
+  --test_val_ratio 0.5 \
   --thresholds "0,0,0;0.001,0.01,0.02;0.0015,0.02,0.035;0.0025,0.03,0.045;0.0035,0.04,0.06;0.0045,0.05,0.075" \
-  --test_every 5 \
+  --test_every 0 \
   --out_dir router_work_dirs/sparse_cost_proxy \
   --epochs 120 \
   --batch_size 4 \
@@ -66,6 +68,7 @@ python train_sparse_cost_proxy.py \
 import argparse
 import csv
 import json
+import math
 import random
 import sys
 import time
@@ -118,6 +121,13 @@ def normalize_frame_id(x) -> str:
 def read_split_file(split_file: str) -> List[str]:
     with open(split_file, "r") as f:
         return [normalize_frame_id(line) for line in f if line.strip()]
+
+
+def write_split_file(split_file: Path, frame_ids: List[str]) -> None:
+    ensure_dir(split_file.parent)
+    with open(split_file, "w") as f:
+        for fid in frame_ids:
+            f.write(f"{normalize_frame_id(fid)}\n")
 
 
 def ensure_dir(path: Path) -> None:
@@ -474,15 +484,26 @@ def sparse_collate_fn(batch: List[Dict[str, object]]) -> Dict[str, object]:
 class SparseConvBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, indice_key: str):
         super().__init__()
-        self.conv = spconv.SubMConv3d(in_channels, out_channels, kernel_size=3, padding=1, bias=False, indice_key=indice_key)
-        self.bn = nn.BatchNorm1d(out_channels)
+        self.conv1 = spconv.SubMConv3d(in_channels, out_channels, kernel_size=3, padding=1, bias=False, indice_key=f"{indice_key}_1")
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.conv2 = spconv.SubMConv3d(out_channels, out_channels, kernel_size=3, padding=1, bias=False, indice_key=f"{indice_key}_2")
+        self.bn2 = nn.BatchNorm1d(out_channels)
         self.relu = nn.ReLU(inplace=True)
+        self.shortcut = None
+        if in_channels != out_channels:
+            self.shortcut = spconv.SubMConv3d(in_channels, out_channels, kernel_size=1, bias=False, indice_key=f"{indice_key}_shortcut")
 
     def forward(self, x):
-        x = self.conv(x)
-        x = replace_feature(x, self.bn(x.features))
-        x = replace_feature(x, self.relu(x.features))
-        return x
+        identity = self.shortcut(x).features if self.shortcut is not None else x.features
+
+        out = self.conv1(x)
+        out = replace_feature(out, self.bn1(out.features))
+        out = replace_feature(out, self.relu(out.features))
+        out = self.conv2(out)
+        out = replace_feature(out, self.bn2(out.features))
+        out = replace_feature(out, out.features + identity)
+        out = replace_feature(out, self.relu(out.features))
+        return out
 
 
 class SparseDownBlock(nn.Module):
@@ -518,12 +539,14 @@ class SparseCostProxyNet(nn.Module):
         num_cost_heads: int = 6,
         num_targets: int = 3,
         cost_nonnegative: bool = True,
+        monotonic_cost: bool = True,
     ):
         super().__init__()
         self.spatial_shape = spatial_shape
         self.num_cost_heads = int(num_cost_heads)
         self.num_targets = int(num_targets)
         self.cost_nonnegative = bool(cost_nonnegative)
+        self.monotonic_cost = bool(monotonic_cost)
 
         self.stem = SparseConvBlock(input_channels, 32, indice_key="subm1")
         self.stage1 = nn.Sequential(
@@ -546,8 +569,9 @@ class SparseCostProxyNet(nn.Module):
             SparseConvBlock(256, 256, indice_key="subm4b"),
         )
 
+        multiscale_pool_dim = (64 + 128 + 256) * 2
         self.global_mlp = nn.Sequential(
-            nn.Linear(256 * 2, feat_dim, bias=False),
+            nn.Linear(multiscale_pool_dim, feat_dim, bias=False),
             nn.BatchNorm1d(feat_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(0.25),
@@ -596,23 +620,50 @@ class SparseCostProxyNet(nn.Module):
         x = self.stage1(x)
         x = self.down2(x)
         x = self.stage2(x)
+        x_stage2 = x
         x = self.down3(x)
         x = self.stage3(x)
+        x_stage3 = x
         x = self.down4(x)
         x = self.stage4(x)
+        x_stage4 = x
 
-        batch_indices = x.indices[:, 0].long()
-        pooled = self.global_pool(x.features, batch_indices, batch_size)
+        pooled_features = []
+        for x_stage in (x_stage2, x_stage3, x_stage4):
+            batch_indices = x_stage.indices[:, 0].long()
+            pooled_features.append(self.global_pool(x_stage.features, batch_indices, batch_size))
+        pooled = torch.cat(pooled_features, dim=1)
         global_feat = self.global_mlp(pooled)
 
         preds = []
         for head in self.cost_heads:
-            pred = head(global_feat)
-            if self.cost_nonnegative:
-                pred = F.softplus(pred)
-            preds.append(pred)
+            preds.append(head(global_feat))
 
-        return {"cost_pred": torch.stack(preds, dim=1)}  # [B,6,3]
+        cost_pred = torch.stack(preds, dim=1)
+        if self.monotonic_cost:
+            cost_pred = torch.cumsum(F.softplus(cost_pred), dim=1)
+        elif self.cost_nonnegative:
+            cost_pred = F.softplus(cost_pred)
+
+        return {"cost_pred": cost_pred}  # [B,6,3]
+
+
+class CostCalibrator(nn.Module):
+    """Small monotonic affine calibrator for cumulative AP-drop heads.
+
+    It learns one positive scale and one bias per target class. Sharing the
+    parameters across cost heads preserves the ordering between L1..L6.
+    """
+
+    def __init__(self, num_targets: int = 3):
+        super().__init__()
+        self.raw_scale = nn.Parameter(torch.full((num_targets,), math.log(math.expm1(1.0))))
+        self.bias = nn.Parameter(torch.zeros(num_targets))
+
+    def forward(self, cost: torch.Tensor) -> torch.Tensor:
+        scale = F.softplus(self.raw_scale).view(1, 1, -1)
+        bias = self.bias.view(1, 1, -1)
+        return (cost * scale + bias).clamp_min(0.0)
 
 
 # ============================================================
@@ -720,8 +771,11 @@ def run_one_epoch(
     head_weights: Optional[torch.Tensor],
     thresholds: Optional[torch.Tensor],
     lambda_threshold: float,
+    calibrator: Optional[nn.Module] = None,
 ) -> Dict[str, object]:
     model.train(train)
+    if calibrator is not None:
+        calibrator.train(train)
 
     total_samples = 0
     total_loss_sum = 0.0
@@ -745,6 +799,8 @@ def run_one_epoch(
         with torch.set_grad_enabled(train):
             out = model(voxel_features, voxel_coords, batch_size)
             cost_pred = out["cost_pred"]
+            if calibrator is not None:
+                cost_pred = calibrator(cost_pred)
             losses = compute_loss(
                 cost_pred=cost_pred,
                 ap_drop_gt=ap_drop,
@@ -801,6 +857,74 @@ def run_one_epoch(
     return out_metrics
 
 
+def fit_cost_calibrator(
+    model: nn.Module,
+    calibrator: CostCalibrator,
+    loader: DataLoader,
+    device: torch.device,
+    ap_weights: torch.Tensor,
+    head_weights: Optional[torch.Tensor],
+    thresholds: Optional[torch.Tensor],
+    lambda_threshold: float,
+    epochs: int,
+    lr: float,
+    weight_decay: float,
+    ap_drop_scale: float,
+) -> Dict[str, object]:
+    """Fit only the calibrator on the validation split."""
+    model.eval()
+    calibrator.to(device)
+    optimizer = torch.optim.AdamW(calibrator.parameters(), lr=lr, weight_decay=weight_decay)
+
+    last_metrics: Dict[str, object] = {}
+    for epoch in range(1, epochs + 1):
+        calibrator.train()
+        total_samples = 0
+        total_loss_sum = 0.0
+
+        pbar = tqdm(loader, desc=f"calib {epoch}/{epochs}", dynamic_ncols=True)
+        for batch in pbar:
+            voxel_features = batch["voxel_features"].to(device, non_blocking=True)
+            voxel_coords = batch["voxel_coords"].to(device, non_blocking=True)
+            ap_drop = batch["ap_drop"].to(device, non_blocking=True)
+            batch_size = int(batch["batch_size"])
+
+            optimizer.zero_grad(set_to_none=True)
+            with torch.no_grad():
+                cost_pred = model(voxel_features, voxel_coords, batch_size)["cost_pred"]
+            cost_pred = calibrator(cost_pred)
+            losses = compute_loss(
+                cost_pred=cost_pred,
+                ap_drop_gt=ap_drop,
+                ap_weights=ap_weights,
+                head_weights=head_weights,
+                thresholds=thresholds,
+                lambda_threshold=lambda_threshold,
+            )
+            losses["total_loss"].backward()
+            optimizer.step()
+
+            total_samples += batch_size
+            total_loss_sum += float(losses["total_loss"].detach().cpu()) * batch_size
+            pbar.set_postfix(loss=total_loss_sum / max(1, total_samples))
+
+        last_metrics = run_one_epoch(
+            model=model,
+            loader=loader,
+            optimizer=None,
+            device=device,
+            train=False,
+            ap_weights=ap_weights,
+            head_weights=head_weights,
+            thresholds=thresholds,
+            lambda_threshold=lambda_threshold,
+            calibrator=calibrator,
+        )
+        print(format_metrics(f"Calib Val epoch {epoch}", last_metrics, ap_drop_scale=ap_drop_scale))
+
+    return last_metrics
+
+
 # ============================================================
 # Save / load / logging
 # ============================================================
@@ -814,6 +938,31 @@ def save_checkpoint(path: Path, model: nn.Module, optimizer, scheduler, epoch: i
             "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict() if scheduler is not None else None,
+            "metrics": metrics,
+            "args": vars(args),
+        },
+        path,
+    )
+
+
+def load_model_checkpoint(model: nn.Module, ckpt_path: Path, device: torch.device) -> Dict[str, object]:
+    print(f"[INFO] Loading model checkpoint: {ckpt_path}")
+    checkpoint = torch.load(ckpt_path, map_location=device)
+    state_dict = checkpoint["model"] if isinstance(checkpoint, dict) and "model" in checkpoint else checkpoint
+    model.load_state_dict(state_dict, strict=True)
+    return checkpoint if isinstance(checkpoint, dict) else {}
+
+
+def save_calibration(
+    path: Path,
+    calibrator: CostCalibrator,
+    metrics: Dict[str, object],
+    args: argparse.Namespace,
+) -> None:
+    ensure_dir(path.parent)
+    torch.save(
+        {
+            "calibrator": calibrator.state_dict(),
             "metrics": metrics,
             "args": vars(args),
         },
@@ -912,6 +1061,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--test_split", type=str, default=None)
     p.add_argument("--test_ap_csv", type=str, default=None)
     p.add_argument("--test_every", type=int, default=0)
+    p.add_argument("--split_test_for_val", action="store_true", help="split --test_split into fixed validation and held-out test parts")
+    p.add_argument("--test_val_ratio", type=float, default=0.5, help="front fraction of --test_split used as validation when --split_test_for_val is enabled")
 
     # Voxelization
     p.add_argument("--voxel_size", type=float, nargs=3, default=[0.16, 0.16, 0.16])
@@ -927,6 +1078,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num_targets", type=int, default=3)
     p.add_argument("--feat_dim", type=int, default=256)
     p.add_argument("--allow_negative_cost", action="store_true")
+    p.add_argument("--no_monotonic_cost", action="store_true", help="disable cumulative non-negative AP-drop prediction")
 
     # Augmentation
     p.add_argument("--use_rotation_aug", action="store_true")
@@ -948,6 +1100,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--head_weights", type=float, nargs="*", default=None)
     p.add_argument("--ap_drop_scale", type=float, default=100.0)
     p.add_argument("--lambda_threshold", type=float, default=0.0)
+    p.add_argument("--calibrate_cost", action="store_true", help="fit a small cost calibrator on the validation split after training best.pth")
+    p.add_argument("--calibration_only", action="store_true", help="skip backbone training and only run best-checkpoint evaluation/calibration")
+    p.add_argument("--calibration_ckpt", type=str, default=None, help="checkpoint used by --calibration_only/--calibrate_cost; defaults to out_dir/best.pth")
+    p.add_argument("--calibration_epochs", type=int, default=20)
+    p.add_argument("--calibration_lr", type=float, default=1e-2)
+    p.add_argument("--calibration_weight_decay", type=float, default=0.0)
 
     # Save / logging
     p.add_argument("--save_every", type=int, default=10)
@@ -983,6 +1141,42 @@ def build_loader(args: argparse.Namespace, split_file: str, ap_csv: str, trainin
     return loader, dataset.spatial_shape, dataset.num_point_features
 
 
+def maybe_split_test_for_validation(args: argparse.Namespace, out_dir: Path) -> None:
+    if not args.split_test_for_val:
+        return
+    if args.test_split is None or args.test_ap_csv is None:
+        raise ValueError("--split_test_for_val requires both --test_split and --test_ap_csv")
+    if not (0.0 < args.test_val_ratio < 1.0):
+        raise ValueError("--test_val_ratio must be between 0 and 1")
+
+    frame_ids = read_split_file(args.test_split)
+    if len(frame_ids) < 2:
+        raise ValueError(f"Cannot split test set with fewer than 2 samples: {args.test_split}")
+
+    num_val = int(round(len(frame_ids) * args.test_val_ratio))
+    num_val = min(max(num_val, 1), len(frame_ids) - 1)
+
+    # Keep the original split-file order. The two subsets are fixed and disjoint:
+    # the front part is used for model selection/calibration, the back part is
+    # held out for final AP/performance reporting.
+    val_ids = frame_ids[:num_val]
+    holdout_ids = frame_ids[num_val:]
+    split_dir = out_dir / "splits"
+    val_split = split_dir / "test_half_val.txt"
+    holdout_split = split_dir / "test_half_holdout.txt"
+    write_split_file(val_split, val_ids)
+    write_split_file(holdout_split, holdout_ids)
+
+    if args.val_split is not None:
+        print(f"[WARN] --split_test_for_val is enabled, ignoring explicit --val_split={args.val_split}")
+    args.val_split = str(val_split)
+    args.val_ap_csv = args.test_ap_csv
+    args.test_split = str(holdout_split)
+    print("[INFO] Deterministically split test set for model selection/calibration:")
+    print(f"  val split:       {args.val_split} ({len(val_ids)} samples, front {args.test_val_ratio:.2f})")
+    print(f"  final test split:{args.test_split} ({len(holdout_ids)} samples, held out for AP/performance)")
+
+
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
@@ -990,6 +1184,7 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     ensure_dir(out_dir)
     setup_file_logger(out_dir, args.log_file)
+    maybe_split_test_for_validation(args, out_dir)
 
     thresholds = parse_thresholds(args.thresholds, scale=args.ap_drop_scale)
     if thresholds is not None:
@@ -1002,6 +1197,8 @@ def main() -> None:
 
     device = torch.device(args.device if torch.cuda.is_available() and args.device.startswith("cuda") else "cpu")
     print(f"Using device: {device}")
+    if args.allow_negative_cost and not args.no_monotonic_cost:
+        print("[WARN] --allow_negative_cost is ignored because monotonic AP-drop prediction is enabled.")
 
     train_loader, spatial_shape, input_channels = build_loader(args, args.train_split, args.ap_csv, training=True)
 
@@ -1023,6 +1220,7 @@ def main() -> None:
         num_cost_heads=args.num_cost_heads,
         num_targets=args.num_targets,
         cost_nonnegative=not args.allow_negative_cost,
+        monotonic_cost=not args.no_monotonic_cost,
     ).to(device)
 
     load_pretrained_weights(model, args.pretrained_ckpt, strict=args.strict_load)
@@ -1041,7 +1239,13 @@ def main() -> None:
     metrics_csv = out_dir / "metrics.csv"
     best_score = -1e18
 
-    for epoch in range(1, args.epochs + 1):
+    if args.calibration_only:
+        if not args.calibrate_cost:
+            print("[WARN] --calibration_only is enabled without --calibrate_cost; only checkpoint evaluation will run.")
+        print("[INFO] Calibration-only mode: skip backbone training.")
+
+    train_epochs = 0 if args.calibration_only else args.epochs
+    for epoch in range(1, train_epochs + 1):
         print(f"\n========== Epoch {epoch}/{args.epochs} ==========")
 
         train_metrics = run_one_epoch(
@@ -1102,6 +1306,101 @@ def main() -> None:
             best_score = score
             save_checkpoint(out_dir / "best.pth", model, optimizer, scheduler, epoch, all_metrics, args)
             print(f"Saved best checkpoint: score={best_score:.6f}")
+
+    if args.calibration_ckpt is not None and args.calibration_ckpt != "":
+        best_ckpt_path = Path(args.calibration_ckpt)
+        if not best_ckpt_path.is_absolute():
+            best_ckpt_path = out_dir / best_ckpt_path
+    else:
+        best_ckpt_path = out_dir / "best.pth"
+
+    if train_epochs == 0 and not best_ckpt_path.exists():
+        raise FileNotFoundError(f"No checkpoint found for evaluation/calibration: {best_ckpt_path}")
+
+    if best_ckpt_path.exists():
+        best_ckpt = load_model_checkpoint(model, best_ckpt_path, device)
+        best_epoch = best_ckpt.get("epoch", "unknown")
+        print(f"[INFO] Loaded best checkpoint for final evaluation: epoch={best_epoch}")
+
+        if val_loader is not None:
+            best_val_metrics = run_one_epoch(
+                model=model,
+                loader=val_loader,
+                optimizer=None,
+                device=device,
+                train=False,
+                ap_weights=ap_weights,
+                head_weights=head_weights,
+                thresholds=thresholds_device,
+                lambda_threshold=args.lambda_threshold,
+            )
+            print(format_metrics("Best Val", best_val_metrics, args.ap_drop_scale))
+            append_metrics_csv(metrics_csv, int(best_ckpt.get("epoch", args.epochs)), "best_val", best_val_metrics, args.ap_drop_scale)
+
+        if test_loader is not None:
+            best_test_metrics = run_one_epoch(
+                model=model,
+                loader=test_loader,
+                optimizer=None,
+                device=device,
+                train=False,
+                ap_weights=ap_weights,
+                head_weights=head_weights,
+                thresholds=thresholds_device,
+                lambda_threshold=args.lambda_threshold,
+            )
+            print(format_metrics("Best Test", best_test_metrics, args.ap_drop_scale))
+            append_metrics_csv(metrics_csv, int(best_ckpt.get("epoch", args.epochs)), "best_test", best_test_metrics, args.ap_drop_scale)
+
+    if args.calibrate_cost:
+        if val_loader is None:
+            raise ValueError("--calibrate_cost requires a validation split. Use --val_split or --split_test_for_val.")
+        if not best_ckpt_path.exists():
+            raise FileNotFoundError(f"Cannot calibrate because best checkpoint was not found: {best_ckpt_path}")
+
+        load_model_checkpoint(model, best_ckpt_path, device)
+        calibrator = CostCalibrator(num_targets=args.num_targets).to(device)
+        print("[INFO] Fitting cost calibrator on validation split.")
+        calib_val_metrics = fit_cost_calibrator(
+            model=model,
+            calibrator=calibrator,
+            loader=val_loader,
+            device=device,
+            ap_weights=ap_weights,
+            head_weights=head_weights,
+            thresholds=thresholds_device,
+            lambda_threshold=args.lambda_threshold,
+            epochs=args.calibration_epochs,
+            lr=args.calibration_lr,
+            weight_decay=args.calibration_weight_decay,
+            ap_drop_scale=args.ap_drop_scale,
+        )
+        print(format_metrics("Calibrated Val", calib_val_metrics, args.ap_drop_scale))
+        append_metrics_csv(metrics_csv, args.epochs, "val_calibrated", calib_val_metrics, args.ap_drop_scale)
+
+        calib_metrics = {"val": calib_val_metrics}
+        if test_loader is not None:
+            calib_test_metrics = run_one_epoch(
+                model=model,
+                loader=test_loader,
+                optimizer=None,
+                device=device,
+                train=False,
+                ap_weights=ap_weights,
+                head_weights=head_weights,
+                thresholds=thresholds_device,
+                lambda_threshold=args.lambda_threshold,
+                calibrator=calibrator,
+            )
+            print(format_metrics("Calibrated Test", calib_test_metrics, args.ap_drop_scale))
+            append_metrics_csv(metrics_csv, args.epochs, "test_calibrated", calib_test_metrics, args.ap_drop_scale)
+            calib_metrics["test"] = calib_test_metrics
+
+        save_calibration(out_dir / "calibration.pth", calibrator, calib_metrics, args)
+        scale = F.softplus(calibrator.raw_scale.detach()).cpu().numpy().tolist()
+        bias = calibrator.bias.detach().cpu().numpy().tolist()
+        print(f"[INFO] Saved calibration to: {out_dir / 'calibration.pth'}")
+        print(f"[INFO] Calibration scale={scale}, bias={bias}")
 
     print(f"\nTraining finished. Outputs saved to: {out_dir}")
     print(f"Best score: {best_score:.6f}")
