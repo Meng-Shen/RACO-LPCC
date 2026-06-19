@@ -1,4 +1,0 @@
-kitti_root=/public/DATA/sm/RACO-LPCC/OpenPCDet/data/kitti_fov
-val_ratio=0.10
-seed=2026
-classes=Car,Pedestrian,Cyclist

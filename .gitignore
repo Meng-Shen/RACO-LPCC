@@ -1,9 +1,17 @@
 mmdetection3d/ckpt/
 mmdetection3d/demo/data/
+mmdetection3d/data/kitti_fov_box_seg/
 mmdetection3d/outputs/
+mmdetection3d/work_dirs/
 OpenPCDet/data/
 OpenPCDet/tools/ckpt/
 OpenPCDet/output/
+OpenPCDet/tools/router_work_dirs/
+__pycache__/
+*.py[cod]
+*.log
+*.json
+*.label
 *.csv
 *.png
 *.npy
@@ -11,4 +19,3 @@ OpenPCDet/output/
 *.txt
 *.pkl
 *.pth
-OpenPCDet/tools/router_work_dirs/
