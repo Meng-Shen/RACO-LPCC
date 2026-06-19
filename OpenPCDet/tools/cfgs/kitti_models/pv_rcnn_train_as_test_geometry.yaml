@@ -1,0 +1,4 @@
+_BASE_CONFIG_: cfgs/kitti_models/pv_rcnn_train_as_test.yaml
+
+DATA_CONFIG:
+    _BASE_CONFIG_: cfgs/dataset_configs/kitti_dataset_train_as_test_geometry.yaml

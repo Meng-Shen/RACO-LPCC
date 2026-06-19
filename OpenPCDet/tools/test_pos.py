@@ -10,12 +10,38 @@ from pathlib import Path
 import numpy as np
 import torch
 from tensorboardX import SummaryWriter
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
 
 from eval_utils import eval_utils
 from pcdet.config import cfg, cfg_from_list, cfg_from_yaml_file, log_config_to_file
 from pcdet.datasets import build_dataloader
 from pcdet.models import build_network
 from pcdet.utils import common_utils
+
+
+DEFAULT_SCALES_STR = "1/64,1.5/128,1/128,1.5/256,1/256,1.5/512,1/512"
+
+
+def parse_scale_value(value):
+    value = str(value).strip()
+    if "/" in value:
+        numerator, denominator = value.split("/", 1)
+        return float(numerator) / float(denominator)
+    return float(value)
+
+
+def parse_scales(scales_str):
+    scales = []
+    for item in str(scales_str).split(","):
+        item = item.strip()
+        if item:
+            scales.append(parse_scale_value(item))
+    if not scales:
+        raise ValueError("--scales must contain at least one quantization scale")
+    return scales
 
 
 def parse_config():
@@ -37,8 +63,11 @@ def parse_config():
     parser.add_argument('--ckpt_dir', type=str, default=None, help='specify a ckpt directory to be evaluated if needed')
     parser.add_argument('--save_to_file', action='store_true', default=False, help='')
     parser.add_argument('--infer_time', action='store_true', default=False, help='calculate inference latency')
+    parser.add_argument('--scales', type=str, default=DEFAULT_SCALES_STR,
+                        help='Comma-separated global G-PCC quantization scales, e.g. "1/64,1/128,1/512"')
 
     args = parser.parse_args()
+    args.scales = parse_scales(args.scales)
 
     cfg_from_yaml_file(args.cfg_file, cfg)
     cfg.TAG = Path(args.cfg_file).stem
@@ -63,6 +92,12 @@ def eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id
         cfg, args, model, test_loader, epoch_id, logger, dist_test=dist_test,
         result_dir=eval_output_dir
     )
+
+
+def progress_iter(iterable, **kwargs):
+    if tqdm is None:
+        return iterable
+    return tqdm(iterable, **kwargs)
 
 
 def main():
@@ -161,11 +196,10 @@ def main():
     # 构建并加载网络模型
     model = build_network(model_cfg=cfg.MODEL, num_class=len(cfg.CLASS_NAMES), dataset=test_set)
     
-    # 设定 10 个量化挡位
-    scales = [1/64, 1.5/128, 1/128, 1.5/256, 1/256, 1.5/512, 1/512]
+    scales = args.scales
 
     with torch.no_grad():
-        for scale in scales:
+        for scale in progress_iter(scales, desc='Baseline AP scales', unit='scale'):
             logger.info('=================================================================================')
             logger.info(f'===================== Start Evaluation for Scale: {scale} =====================')
             logger.info('=================================================================================')

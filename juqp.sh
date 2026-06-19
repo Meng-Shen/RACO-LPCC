@@ -6,11 +6,11 @@ TOOLS_DIR="${SCRIPT_DIR}/OpenPCDet/tools"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
-CFG_FILE="${CFG_FILE:-cfgs/kitti_models/pv_rcnn.yaml}"
+CFG_FILE="${CFG_FILE:-cfgs/kitti_models/pv_rcnn_fov_geometry.yaml}"
 CKPT="${CKPT:-ckpt/latest_model.pth}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 
-SPLIT_FILE="${SPLIT_FILE:-../data/kitti/ImageSets/val.txt}"
+SPLIT_FILE="${SPLIT_FILE:-../data/kitti_fov/ImageSets/val.txt}"
 EVAL_DIR="${EVAL_DIR:-../output/kitti_models/pv_rcnn/default/eval/epoch_no_number/val/default}"
 MASK_DIR="${MASK_DIR:-../output/eval/test_seg_masks}"
 
@@ -46,7 +46,7 @@ Usage:
   ./juqp.sh
 
 Common overrides:
-  CFG_FILE=cfgs/kitti_models/pv_rcnn.yaml
+  CFG_FILE=cfgs/kitti_models/pv_rcnn_fov_geometry.yaml
   CKPT=ckpt/latest_model.pth
   BATCH_SIZE=8
   MASK_DIR=../output/eval/seg_masks

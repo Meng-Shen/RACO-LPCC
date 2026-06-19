@@ -347,6 +347,15 @@ class Detector3DTemplate(nn.Module):
                     if val_implicit.shape == state_dict[key].shape:
                         val = val_implicit.contiguous()
 
+            if key in state_dict and state_dict[key].shape != val.shape:
+                adapted_val = self._adapt_geometry_only_input_weight(
+                    key=key,
+                    val=val,
+                    target_shape=state_dict[key].shape,
+                )
+                if adapted_val is not None:
+                    val = adapted_val
+
             if key in state_dict and state_dict[key].shape == val.shape:
                 update_model_state[key] = val
                 # logger.info('Update weight %s: %s' % (key, str(val.shape)))
@@ -357,6 +366,27 @@ class Detector3DTemplate(nn.Module):
             state_dict.update(update_model_state)
             self.load_state_dict(state_dict)
         return state_dict, update_model_state
+
+    @staticmethod
+    def _adapt_geometry_only_input_weight(key, val, target_shape):
+        """Load 4-channel xyz+intensity weights into a 3-channel xyz model."""
+        if not hasattr(val, 'shape') or len(val.shape) != len(target_shape):
+            return None
+
+        mismatch_dims = [
+            dim for dim, (src, dst) in enumerate(zip(val.shape, target_shape))
+            if src != dst
+        ]
+        if len(mismatch_dims) != 1:
+            return None
+
+        dim = mismatch_dims[0]
+        if val.shape[dim] == 4 and target_shape[dim] == 3:
+            slices = [slice(None)] * val.dim()
+            slices[dim] = slice(0, 3)
+            return val[tuple(slices)].contiguous()
+
+        return None
 
     def load_params_from_file(self, filename, logger, to_cpu=False, pre_trained_path=None):
         if not os.path.isfile(filename):

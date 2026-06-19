@@ -5,13 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_DIR="${SCRIPT_DIR}/OpenPCDet/tools"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
-CFG_FILE="${CFG_FILE:-cfgs/kitti_models/pv_rcnn_train_as_test.yaml}"
+CFG_FILE="${CFG_FILE:-cfgs/kitti_models/pv_rcnn_train_as_test_fov_geometry.yaml}"
 CKPT="${CKPT:-ckpt/latest_model.pth}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 
 # ===== train 集相关路径 =====
 SPLIT_NAME="${SPLIT_NAME:-train}"
-SPLIT_FILE="${SPLIT_FILE:-../data/kitti/ImageSets/train.txt}"
+SPLIT_FILE="${SPLIT_FILE:-../data/kitti_fov/ImageSets/train.txt}"
 EVAL_DIR="${EVAL_DIR:-../output/kitti_models/pv_rcnn_train_as_test/default/eval/epoch_no_number/train/default}"
 MASK_DIR="${MASK_DIR:-../output/eval/train_seg_masks}"
 
