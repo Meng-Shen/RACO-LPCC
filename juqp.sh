@@ -17,8 +17,8 @@ MASK_DIR="${MASK_DIR:-../output/eval/test_seg_masks}"
 # 点云量化步长组合只在这里定义一次。
 # 格式："前景步长,背景步长;前景步长,背景步长;..."
 # 顺序就是 test_split.py 生成 combo_0、combo_1、... 的顺序。
-# 约定：最后一个 combo 是最高码率/基准，对应 JUCP Label 0；倒数第二个对应 Label 1；依此类推。
-QUANT_MAP="${QUANT_MAP:-1/256,1/1024;2/256,1/1024;3/256,1/1024;1/64,1/1024;1/64,1/512;1/64,1.25/512;1/64,1.5/512}"
+# 约定：第一个 combo 是最高质量/基准，对应 JUCP Label 0；Label 越大压缩越狠。
+QUANT_MAP="${QUANT_MAP:-1/64,1.5/512;1/64,1.25/512;1/64,1/512;1/64,1/1024;3/256,1/1024;2/256,1/1024;1/256,1/1024}"
 
 # 三个目标类别各自的 AP 下降阈值。
 # 这三个值会同时用于：
@@ -55,7 +55,7 @@ Common overrides:
   AP_CSV=split_AP.csv
 
 Quantization map, define once here and pass to all Python scripts:
-  QUANT_MAP='1/256,0;2/256,0;3/256,0;1/64,0;1/64,1/512;1/64,1.25/512;1/64,1.5/512'
+  QUANT_MAP='1/64,1.5/512;1/64,1.25/512;1/64,1/512;1/64,0;3/256,0;2/256,0;1/256,0'
 
 JUCP thresholds, used both for CSV filename and jucp_split.py:
   JUCP_CAR_THRESHOLD=0.0045
@@ -82,7 +82,7 @@ Examples:
   JUCP_CYC_THRESHOLD=0.06 \
   ./juqp.sh
 
-  QUANT_MAP='1/512,0;1/256,0;1/64,1.5/512' ./juqp.sh
+  QUANT_MAP='1/64,1.5/512;1/256,0;1/512,0' ./juqp.sh
 
   RUN_TEST_SPLIT=0 RUN_NEW_SPLIT=0 ./juqp.sh
 EOF

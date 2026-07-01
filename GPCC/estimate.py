@@ -17,7 +17,7 @@ from data_utils.geometry.inout import write_ply_o3d
 from extention.gpcc_geo import gpcc_decode, gpcc_encode
 
 
-FG_CLASSES = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18]
+FG_CLASSES = [1]
 DEFAULT_FG_CLASSES = ",".join(str(x) for x in FG_CLASSES)
 
 

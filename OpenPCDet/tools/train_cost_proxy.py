@@ -210,7 +210,12 @@ def detect_ap_levels(ap_df: pd.DataFrame) -> List[int]:
     return levels
 
 
-def load_ap_drop_gt(ap_csv: str, num_cost_heads: int, ap_drop_scale: float = 1.0) -> Dict[str, np.ndarray]:
+def load_ap_drop_gt(
+    ap_csv: str,
+    num_cost_heads: int,
+    ap_drop_scale: float = 1.0,
+    signed_ap_drop: bool = False,
+) -> Dict[str, np.ndarray]:
     """Load split_AP.csv and convert AP matrix to AP drop targets.
 
     Return:
@@ -249,7 +254,9 @@ def load_ap_drop_gt(ap_csv: str, num_cost_heads: int, ap_drop_scale: float = 1.0
                 [float(row[f"L{lv}_Car_AP"]), float(row[f"L{lv}_Ped_AP"]), float(row[f"L{lv}_Cyc_AP"])],
                 dtype=np.float32,
             )
-            drop = np.maximum(base - cur, 0.0)
+            drop = base - cur
+            if not signed_ap_drop:
+                drop = np.maximum(drop, 0.0)
             drops.append(drop)
         ap_drop[fid] = np.stack(drops, axis=0).astype(np.float32) * float(ap_drop_scale)
     return ap_drop
@@ -376,6 +383,7 @@ class SparseCostProxyDataset(Dataset):
         num_cost_heads: int,
         training: bool,
         ap_drop_scale: float,
+        signed_ap_drop: bool,
         use_rotation_aug: bool,
         jitter_std: float,
         use_abs_xyz: bool,
@@ -390,7 +398,12 @@ class SparseCostProxyDataset(Dataset):
         self.use_abs_xyz = bool(use_abs_xyz)
 
         split_ids = read_split_file(split_file)
-        ap_drop_gt = load_ap_drop_gt(ap_csv, num_cost_heads=num_cost_heads, ap_drop_scale=ap_drop_scale)
+        ap_drop_gt = load_ap_drop_gt(
+            ap_csv,
+            num_cost_heads=num_cost_heads,
+            ap_drop_scale=ap_drop_scale,
+            signed_ap_drop=signed_ap_drop,
+        )
 
         self.items = []
         missing_bin = 0
@@ -655,15 +668,19 @@ class CostCalibrator(nn.Module):
     parameters across cost heads preserves the ordering between L1..L6.
     """
 
-    def __init__(self, num_targets: int = 3):
+    def __init__(self, num_targets: int = 3, allow_negative: bool = False):
         super().__init__()
+        self.allow_negative = bool(allow_negative)
         self.raw_scale = nn.Parameter(torch.full((num_targets,), math.log(math.expm1(1.0))))
         self.bias = nn.Parameter(torch.zeros(num_targets))
 
     def forward(self, cost: torch.Tensor) -> torch.Tensor:
         scale = F.softplus(self.raw_scale).view(1, 1, -1)
         bias = self.bias.view(1, 1, -1)
-        return (cost * scale + bias).clamp_min(0.0)
+        calibrated = cost * scale + bias
+        if not self.allow_negative:
+            calibrated = calibrated.clamp_min(0.0)
+        return calibrated
 
 
 # ============================================================
@@ -1099,6 +1116,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--ap_weights", type=float, nargs=3, default=[1.0, 1.0, 1.0])
     p.add_argument("--head_weights", type=float, nargs="*", default=None)
     p.add_argument("--ap_drop_scale", type=float, default=100.0)
+    p.add_argument("--signed_ap_drop", action="store_true", help="use signed base-current AP drop instead of clipping AP gains to zero")
     p.add_argument("--lambda_threshold", type=float, default=0.0)
     p.add_argument("--calibrate_cost", action="store_true", help="fit a small cost calibrator on the validation split after training best.pth")
     p.add_argument("--calibration_only", action="store_true", help="skip backbone training and only run best-checkpoint evaluation/calibration")
@@ -1125,6 +1143,7 @@ def build_loader(args: argparse.Namespace, split_file: str, ap_csv: str, trainin
         num_cost_heads=args.num_cost_heads,
         training=training,
         ap_drop_scale=args.ap_drop_scale,
+        signed_ap_drop=args.signed_ap_drop,
         use_rotation_aug=args.use_rotation_aug,
         jitter_std=args.jitter_std,
         use_abs_xyz=not args.no_abs_xyz,
@@ -1359,7 +1378,7 @@ def main() -> None:
             raise FileNotFoundError(f"Cannot calibrate because best checkpoint was not found: {best_ckpt_path}")
 
         load_model_checkpoint(model, best_ckpt_path, device)
-        calibrator = CostCalibrator(num_targets=args.num_targets).to(device)
+        calibrator = CostCalibrator(num_targets=args.num_targets, allow_negative=args.allow_negative_cost).to(device)
         print("[INFO] Fitting cost calibrator on validation split.")
         calib_val_metrics = fit_cost_calibrator(
             model=model,

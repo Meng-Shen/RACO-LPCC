@@ -12,7 +12,8 @@ from pcdet.models import build_network, load_data_to_gpu
 from pcdet.utils import common_utils
 
 # 设定前景类别
-FG_CLASSES = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18]
+# Binary masks: 0 = background, 1 = foreground.
+FG_CLASSES = [1]
 
 class DemoDataset(DatasetTemplate):
     def __init__(self, dataset_cfg, class_names, training=True, root_path=None, logger=None, ext='.bin'):

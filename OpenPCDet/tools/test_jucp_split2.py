@@ -19,7 +19,8 @@ from pcdet.models import build_network
 from pcdet.utils import common_utils
 
 # 与生成脚本保持一致的前景类别
-FG_CLASSES = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18]
+# Binary masks: 0 = background, 1 = foreground.
+FG_CLASSES = [1]
 
 def parse_config():
     parser = argparse.ArgumentParser(description='Auto JUCP Split Compression Eval')

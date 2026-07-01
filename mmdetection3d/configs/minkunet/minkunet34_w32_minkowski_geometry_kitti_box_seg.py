@@ -24,7 +24,7 @@ model = dict(
         ignore_index=2,
         loss_decode=dict(
             type='mmdet.CrossEntropyLoss',
-            class_weight=[1.0, 8.0],
+            class_weight=[1.0, 20.0],
             avg_non_ignore=True)))
 
 train_pipeline = [

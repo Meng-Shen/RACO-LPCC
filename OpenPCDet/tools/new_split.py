@@ -13,11 +13,11 @@ import multiprocessing
 # =========================================================
 W_GT_ANNOS = None
 W_DT_ANNOS_ALL = None
-W_BASELINE_IDX = 0  # 0 对应 Label 0 (最大码率/原图) → 现在7个，基线是6
+W_BASELINE_IDX = 0  # Label 0 对应 quant_map[0]，也就是最高质量/基准档
 W_CLASSES = ['Car', 'Pedestrian', 'Cyclist']
 W_NUM_LEVELS = None
 
-DEFAULT_QUANT_MAP_STR = "1/256,0;2/256,0;3/256,0;1/64,0;1/64,1/512;1/64,1.25/512;1/64,1.5/512"
+DEFAULT_QUANT_MAP_STR = "1/64,1.5/512;1/64,1.25/512;1/64,1/512;1/64,0;3/256,0;2/256,0;1/256,0"
 
 
 def parse_scale_value(text):
@@ -41,7 +41,8 @@ def parse_quant_map(quant_map_str):
     每一项是：前景量化步长,背景量化步长
     项和项之间用英文分号 ; 分隔。
     顺序就是 combo_0、combo_1、... 的生成顺序。
-    后续 new_split.py / test_jucp_split.py 会自动把最后一个 combo 当成 Label 0，倒数第二个当成 Label 1，依此类推。
+    后续 new_split.py / test_jucp_split.py 会把第一个 combo 当成 Label 0。
+    Label 越大表示压缩越狠。
     """
     if quant_map_str is None:
         raise ValueError("quant_map_str is None")
@@ -96,13 +97,13 @@ def init_worker(cfg_file, split_file, eval_dir, quant_map_str):
         W_DT_ANNOS_ALL = {}
 
         # combo 顺序来自 --quant_map。
-        # 约定：最后一个 combo 是最高码率/基准，对应 Label 0；倒数第二个对应 Label 1；依此类推。
+        # 约定：quant_map[0] 是最高质量/基准，对应 Label 0；Label 越大压缩越狠。
         for combo_idx, (scale_fg, scale_bg) in enumerate(quant_map):
             folder_name = f'combo_{combo_idx}_fg_{scale_fg:.6f}_bg_{scale_bg:.6f}'
             pkl_path = eval_dir_path / folder_name / 'result.pkl'
             if not pkl_path.exists():
                 raise FileNotFoundError(f"Cannot find result pkl for {folder_name}: {pkl_path}")
-            target_label = W_NUM_LEVELS - 1 - combo_idx
+            target_label = combo_idx
             with open(pkl_path, 'rb') as f:
                 W_DT_ANNOS_ALL[target_label] = pickle.load(f)
 
@@ -178,8 +179,8 @@ def main():
     quant_map = parse_quant_map(args.quant_map)
     num_levels = len(quant_map)
 
-    # 默认最后一个 combo 是最高码率/基准，对应 Label 0
-    baseline_combo_idx = num_levels - 1
+    # 默认第一个 combo 是最高质量/基准，对应 Label 0。
+    baseline_combo_idx = 0
     scale_fg, scale_bg = quant_map[baseline_combo_idx]
     test_pkl = Path(args.eval_dir) / f'combo_{baseline_combo_idx}_fg_{scale_fg:.6f}_bg_{scale_bg:.6f}' / 'result.pkl'
     
@@ -218,7 +219,7 @@ def main():
                 last_level = num_levels - 1
                 last_car = res[f'L{last_level}_Car_AP']
                 
-                msg = f"✅ 帧 {frame_id} 处理完毕 | 车辆AP: 原图(L0)={l0_car:.4f} ➔ 极限压缩(L{last_level})={last_car:.4f}"
+                msg = f"✅ 帧 {frame_id} 处理完毕 | 车辆AP: 基准(L0)={l0_car:.4f} ➔ 极限压缩(L{last_level})={last_car:.4f}"
                 tqdm.write(msg)
 
     print("[3/3] Saving Final AP Matrix to CSV...")

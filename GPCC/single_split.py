@@ -14,7 +14,8 @@ from gpcc_geo import gpcc_encode, gpcc_decode
 from data_utils.geometry.inout import write_ply_o3d
 
 # 定义前景标签
-FG_CLASSES = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18]
+# Binary masks: 0 = background, 1 = foreground.
+FG_CLASSES = [1]
 
 def read_kitti_bin(filedir):
     """读取 KITTI 格式的 bin 文件，返回 (N, 3) 坐标"""

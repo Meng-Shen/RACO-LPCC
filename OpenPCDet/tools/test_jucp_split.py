@@ -19,11 +19,12 @@ from pcdet.models import build_network
 from pcdet.utils import common_utils
 
 # 与生成脚本保持一致的前景类别
-FG_CLASSES = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18]
+# Binary masks: 0 = background, 1 = foreground.
+FG_CLASSES = [1]
 
 # 量化组合由 bash 通过 --quant_map 传入
 
-DEFAULT_QUANT_MAP_STR = "1/256,0;2/256,0;3/256,0;1/64,0;1/64,1/512;1/64,1.25/512;1/64,1.5/512"
+DEFAULT_QUANT_MAP_STR = "1/64,1.5/512;1/64,1.25/512;1/64,1/512;1/64,0;3/256,0;2/256,0;1/256,0"
 
 
 def parse_scale_value(text):
@@ -47,7 +48,8 @@ def parse_quant_map(quant_map_str):
     每一项是：前景量化步长,背景量化步长
     项和项之间用英文分号 ; 分隔。
     顺序就是 combo_0、combo_1、... 的生成顺序。
-    后续 new_split.py / test_jucp_split.py 会自动把最后一个 combo 当成 Label 0，倒数第二个当成 Label 1，依此类推。
+    后续 new_split.py / test_jucp_split.py 会把第一个 combo 当成 Label 0。
+    Label 越大表示压缩越狠。
     """
     if quant_map_str is None:
         raise ValueError("quant_map_str is None")
@@ -258,10 +260,10 @@ def main():
     jucp_df = pd.read_csv(args.jucp_csv, dtype={'frame_id': str})
     
     # 构建映射表: frame_id -> (scale_fg, scale_bg)
-    # 约定：--quant_map 的最后一个 combo 是最高码率/基准，对应 Label 0；倒数第二个对应 Label 1；依此类推。
+    # 约定：--quant_map 的第一个 combo 是最高质量/基准，对应 Label 0；Label 越大压缩越狠。
     num_levels = len(args.quant_map)
     label_to_quant = {
-        label: args.quant_map[num_levels - 1 - label]
+        label: args.quant_map[label]
         for label in range(num_levels)
     }
 

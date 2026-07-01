@@ -15,7 +15,7 @@ PRETRAINED="${PRETRAINED:-${MMDET_DIR}/ckpt/minkunet34_w32_minkowski_8xb2-laser-
 VAL_RATIO="${VAL_RATIO:-0.10}"
 SEED="${SEED:-2026}"
 WORK_DIR="${WORK_DIR:-${MMDET_DIR}/work_dirs/minkunet_kitti_fov_box_seg_geometry}"
-FG_WEIGHT="${FG_WEIGHT:-8.0}"
+FG_WEIGHT="${FG_WEIGHT:-20.0}"
 FORCE_REGENERATE_LABELS="${FORCE_REGENERATE_LABELS:-0}"
 
 if [[ ! -d "${KITTI_ROOT}/training/velodyne" ||

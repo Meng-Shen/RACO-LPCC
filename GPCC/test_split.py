@@ -17,7 +17,8 @@ from mmdet3d.apis import LidarSeg3DInferencer
 from data_utils.geometry.inout import write_ply_o3d
 from extention.gpcc_geo import gpcc_encode
 
-FG_CLASSES = [0, 1, 2, 3, 4, 5, 6, 7, 17, 18]
+# Binary masks: 0 = background, 1 = foreground.
+FG_CLASSES = [1]
 
 @contextmanager
 def suppress_stderr():

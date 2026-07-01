@@ -15,7 +15,7 @@ def parse_args():
 def extract_map_from_log(log_path):
     """
     使用严格的状态机正则表达式，精准提取 R40 标准下的 Moderate 3D AP
-    - Car: AP_R40@0.70, 0.50, 0.50
+    - Car: AP_R40@0.70, 0.70, 0.70
     - Pedestrian: AP_R40@0.50, 0.50, 0.50
     - Cyclist: AP_R40@0.50, 0.50, 0.50
     """
@@ -36,10 +36,9 @@ def extract_map_from_log(log_path):
             if current_scale is None:
                 continue
 
-            # 2. 【核心修复】：极度严格地匹配带有 0.50, 0.50 后缀的 AP_R40 行
+            # 2. 严格匹配官方 KITTI 3D AP 阈值
             
-            # 匹配: "Car AP_R40@0.70, 0.50, 0.50:"
-            m_car = re.search(r'Car\s+AP_R40@0\.70,\s*0\.50,\s*0\.50', line)
+            # 匹配: "Car AP_R40@0.70, 0.70, 0.70:"
             m_car = re.search(r'Car\s+AP_R40@0\.70,\s*0\.70,\s*0\.70', line)
             if m_car:
                 target_class = 'Car'
@@ -119,7 +118,7 @@ def main():
     plt.figure(figsize=(10, 6))
     
     # 绘制三条曲线，更新图例
-    plt.plot(bpps, car_aps, marker='o', markersize=6, linewidth=2, label='Car (AP_R40@0.70,0.50,0.50)')
+    plt.plot(bpps, car_aps, marker='o', markersize=6, linewidth=2, label='Car (AP_R40@0.70,0.70,0.70)')
     plt.plot(bpps, ped_aps, marker='s', markersize=6, linewidth=2, label='Pedestrian (AP_R40@0.50,0.50,0.50)')
     plt.plot(bpps, cyc_aps, marker='^', markersize=6, linewidth=2, label='Cyclist (AP_R40@0.50,0.50,0.50)')
 
