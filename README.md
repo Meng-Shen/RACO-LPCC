@@ -353,6 +353,66 @@ THRESHOLDS='0,0,0;0.0001,0.01,0.02;0.0002,0.02,0.035;0.0003,0.03,0.045;0.0004,0.
 ./run_router_gpcc_curve.sh
 ```
 
+## Train Super Resolution Module
+
+```bash
+CUDA_VISIBLE_DEVICES=3 \
+python -u GPCC/train_sparse_sr.py \
+  --device cuda \
+  --epochs 80 \
+  --eval_interval 10 \
+  --batch_size 2 \
+  --workers 4 \
+  --direct_coarse_quant \
+  --work_dir GPCC/work_dirs/sparse_sr_direct
+```
+
+With `--direct_coarse_quant`, training uses `round(coords * scale)` as the
+coarse input lattice and supervises the 8 child positions implied by
+`coarse * 2 + offset`, matching the full-frame SR test path below.
+
+## Test Super Resolution Module
+
+The first frame in the current KITTI FOV val split is `000001`, so the frame
+argument can be passed as `000001.bin`. The command below evaluates the trained
+super-resolution checkpoint on the full frame at the same 8 quantization scales
+used by `GPCC/train_sparse_sr.py`; it does not require foreground/background
+segmentation labels.
+
+```bash
+cd /public/DATA/sm/RACO-LPCC
+
+CUDA_VISIBLE_DEVICES=3 \
+python -u GPCC/eval_sr_frame_psnr_bpp.py \
+  --device cuda \
+  --frame 000001.bin \
+  --ckpt GPCC/work_dirs/sparse_sr_direct/latest.pth \
+  --selection oracle_count \
+  --metadata_bits 32 \
+  --out_dir GPCC/outputs_sr_eval/000001_latest
+```
+
+`--selection oracle_count` simulates the decoder using the SR model with the
+true next-resolution full-frame point count carried in the bitstream. The
+reported SR bitrate therefore adds `--metadata_bits` to each frame/scale result
+to record that count. If the checkpoint was trained into another directory,
+for example `GPCC/work_dirs/sparse_r`, change `--ckpt` to that directory's
+`latest.pth` or `best.pth`.
+
+Outputs:
+
+```text
+GPCC/outputs_sr_eval/000001_latest/sr_psnr_bpp.csv
+GPCC/outputs_sr_eval/000001_latest/gpcc_psnr_bpp.csv
+GPCC/outputs_sr_eval/000001_latest/d1_psnr_bpp_curve.png
+GPCC/outputs_sr_eval/000001_latest/d2_psnr_bpp_curve.png
+```
+
+The two CSV files contain D1/D2 PSNR and bpp for SR and non-SR GPCC baseline
+at all 8 quantization scales. The two PNG files plot SR and baseline curves
+on the same figure for D1 and D2 separately.
+
+
 ## Obtain AP-bpp curve point pairs with the JUQP router proxy
 
 After `./run_juqp_train_router.sh` finishes, use the trained router proxy to
@@ -446,8 +506,8 @@ CUDA_VISIBLE_DEVICES=3 \
 RUN_TEST_SPLIT=0 \
 SELECTION_POLICY=lagrangian \
 BPP_ESTIMATE=mean \
-LAGRANGE_CLASS_WEIGHTS='1,0.1,1' \
-LAGRANGE_LAMBDAS='0,0.0002,0.0005,0.001,0.0015,0.002,0.003,0.005,0.01' \
+LAGRANGE_CLASS_WEIGHTS='1,0,0' \
+LAGRANGE_LAMBDAS='0,0.0002,0.0005,0.001,0.0015,0.002,0.005,0.005,0.01' \
 LAGRANGE_MAX_LABELS='1,4,4,4,4,4,4,5,6' \
 ROUTER_CKPT=/public/DATA/sm/RACO-LPCC/OpenPCDet/tools/router_work_dirs/cost_proxy_model_w_juqp_car_signed_ft/best.pth \
 ROUTER_CALIBRATION=/public/DATA/sm/RACO-LPCC/OpenPCDet/tools/router_work_dirs/cost_proxy_model_w_juqp_car_signed_ft/calibration.pth \
@@ -507,7 +567,6 @@ If labels or AP have already been generated, skip stages as needed:
 ```bash
 RUN_EXPORT=0 RUN_AP=0 ./run_router_gpcc_curve.sh
 ```
-
 
 ## Obtain AP-bpp curve point pairs of the baseline method(G-PCC)
 

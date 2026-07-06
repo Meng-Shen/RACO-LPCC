@@ -5,6 +5,7 @@ import glob
 import os
 import re
 import time
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -63,8 +64,8 @@ def parse_quant_map(quant_map_str):
         scale_bg = parse_scale_value(parts[1])
         quant_map.append((scale_fg, scale_bg))
 
-    if len(quant_map) < 2:
-        raise ValueError("quant_map must contain at least 2 combinations")
+    if len(quant_map) < 1:
+        raise ValueError("quant_map must contain at least 1 combination")
     return quant_map
 
 
@@ -89,6 +90,12 @@ def parse_config():
     parser.add_argument('--mask_dir', type=str, default='../output/eval/seg_masks', help='Directory of pre-computed .npy masks')
     parser.add_argument('--quant_map', type=str, default=DEFAULT_QUANT_MAP_STR,
                         help='Quantization combinations. Format: fg,bg;fg,bg. Example: 1/64,1/64;1/64,1/2048')
+    parser.add_argument('--drop_fg_scatter', action='store_true',
+                        help='Drop tiny foreground micro-clusters before split quantization.')
+    parser.add_argument('--scatter_radius', type=int, default=8,
+                        help='Chebyshev radius in quantized foreground coordinates for scatter micro-clusters.')
+    parser.add_argument('--scatter_threshold', type=int, default=4,
+                        help='Drop foreground micro-clusters with <= this many unique quantized points.')
 
     args = parser.parse_args()
     args.quant_map = parse_quant_map(args.quant_map)
@@ -101,6 +108,47 @@ def parse_config():
         cfg_from_list(args.set_cfgs, cfg)
 
     return args, cfg
+
+
+def unique_rows(array):
+    if len(array) == 0:
+        return array.reshape(0, 3).astype(np.int32)
+    return np.unique(array.astype(np.int32, copy=False), axis=0)
+
+
+def tiny_cluster_quantized_points(qcoords, radius, threshold):
+    qcoords = unique_rows(qcoords)
+    if len(qcoords) == 0:
+        return set()
+    point_to_index = {tuple(map(int, p)): i for i, p in enumerate(qcoords)}
+    visited = np.zeros(len(qcoords), dtype=bool)
+    offsets = [
+        (dx, dy, dz)
+        for dx in range(-radius, radius + 1)
+        for dy in range(-radius, radius + 1)
+        for dz in range(-radius, radius + 1)
+        if not (dx == 0 and dy == 0 and dz == 0)
+    ]
+    tiny = set()
+    for start in range(len(qcoords)):
+        if visited[start]:
+            continue
+        visited[start] = True
+        queue = deque([start])
+        members = []
+        while queue:
+            idx = queue.popleft()
+            members.append(idx)
+            x, y, z = map(int, qcoords[idx])
+            for dx, dy, dz in offsets:
+                nxt = point_to_index.get((x + dx, y + dy, z + dz))
+                if nxt is not None and not visited[nxt]:
+                    visited[nxt] = True
+                    queue.append(nxt)
+        if len(members) <= threshold:
+            for idx in members:
+                tiny.add(tuple(map(int, qcoords[idx])))
+    return tiny
 
 
 def eval_single_ckpt(model, test_loader, args, eval_output_dir, logger, epoch_id, dist_test=False):
@@ -183,6 +231,19 @@ def main():
         coords_mm = np.round(coords_raw.astype(np.float64) * 1000).astype(np.int32)
         offset = coords_mm.min(axis=0)
         coords_scaled = coords_mm - offset
+
+        if args.drop_fg_scatter and fg_mask.any():
+            q_fg = np.round(coords_scaled[fg_mask].astype(np.float64) * scale_fg).astype(np.int32)
+            tiny_q = tiny_cluster_quantized_points(
+                q_fg, radius=args.scatter_radius, threshold=args.scatter_threshold)
+            if tiny_q:
+                fg_indices = np.flatnonzero(fg_mask)
+                drop_local = np.array([tuple(map(int, q)) in tiny_q for q in q_fg], dtype=bool)
+                keep_points = np.ones(len(coords_raw), dtype=bool)
+                keep_points[fg_indices[drop_local]] = False
+                coords_scaled = coords_scaled[keep_points]
+                fg_mask = fg_mask[keep_points]
+                bg_mask = bg_mask[keep_points]
         
         def quantize_subset(mask, scale):
             c_sub = coords_scaled[mask]
