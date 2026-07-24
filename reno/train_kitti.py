@@ -82,6 +82,10 @@ def main():
     parser.add_argument('--lr_decay', type=float, default=0.1)
     parser.add_argument('--lr_decay_steps', default='100000,150000')
     parser.add_argument('--max_steps', type=int, default=170000)
+    parser.add_argument('--log_every', type=int, default=50,
+                        help='Print average training loss every N steps. Step 1 is always printed.')
+    parser.add_argument('--checkpoint_every', type=int, default=500,
+                        help='Save ckpt.pt every N steps.')
     parser.add_argument('--device', default='cuda:0')
     parser.add_argument('--seed', type=int, default=11)
     args = parser.parse_args()
@@ -103,6 +107,12 @@ def main():
     if not files:
         raise FileNotFoundError('No training files found.')
     np.random.shuffle(files)
+    print(
+        f'Training files: {len(files)} | batch_size: {args.batch_size} | '
+        f'max_steps: {args.max_steps} | train_posq: {args.train_posq} | '
+        f'log_every: {args.log_every}',
+        flush=True,
+    )
 
     loader = torch.utils.data.DataLoader(
         dataset=GpccStyleKittiDataset(files, train_posq=args.train_posq),
@@ -119,7 +129,7 @@ def main():
     losses = []
     global_step = 0
     for epoch in range(1, 9999):
-        print(datetime.datetime.now())
+        print(datetime.datetime.now(), flush=True)
         for data in loader:
             x = data['input'].to(device=device)
             optimizer.zero_grad()
@@ -129,16 +139,18 @@ def main():
             global_step += 1
             losses.append(float(loss.item()))
 
-            if global_step % 500 == 0:
-                print(f'Epoch:{epoch} | Step:{global_step} | Loss:{round(float(np.mean(losses)), 5)}')
+            if global_step == 1 or (args.log_every > 0 and global_step % args.log_every == 0):
+                print(f'Epoch:{epoch} | Step:{global_step} | Loss:{round(float(np.mean(losses)), 5)}', flush=True)
                 losses = []
+
+            if args.checkpoint_every > 0 and global_step % args.checkpoint_every == 0:
                 torch.save(net.state_dict(), model_dir / 'ckpt.pt')
 
             if global_step in lr_decay_steps:
                 args.learning_rate *= args.lr_decay
                 for group in optimizer.param_groups:
                     group['lr'] = args.learning_rate
-                print(f'Learning rate decay triggered at step {global_step}, LR is setting to {args.learning_rate}.')
+                print(f'Learning rate decay triggered at step {global_step}, LR is setting to {args.learning_rate}.', flush=True)
 
             if global_step >= args.max_steps:
                 break
@@ -146,7 +158,7 @@ def main():
             break
 
     torch.save(net.state_dict(), model_dir / 'ckpt.pt')
-    print(f'Checkpoint: {model_dir / "ckpt.pt"}')
+    print(f'Checkpoint: {model_dir / "ckpt.pt"}', flush=True)
 
 
 if __name__ == '__main__':

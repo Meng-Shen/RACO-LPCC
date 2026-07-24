@@ -17,6 +17,7 @@ RACO-LPCC/reno/reno_rates.py
 RACO-LPCC/reno/test_reno_pos.py
 RACO-LPCC/reno/parse_reno_ap_logs.py
 RACO-LPCC/reno/merge_reno_curve.py
+RACO-LPCC/reno/plot_reno_curves.py
 ```
 
 `reno_rates.py` performs the actual RENO encode/decode loop with `Network`, `FOG/FCG`, and `torchac`. It reads KITTI `.bin`, writes RENO bitstreams, measures bpp/time, computes D1/D2 PSNR, and removes temporary PSNR PLY files immediately.
@@ -65,7 +66,7 @@ RENO has no released KITTI checkpoint requirement for this run, so train one che
 ```bash
 cd /public/DATA/sm/RACO-LPCC
 
-RUN_TRAIN=1 RUN_RENO=0 RUN_AP=0 MAX_STEPS=170000 TRAIN_POSQ=4.0 ./run_reno_baseline_curve.sh
+RUN_TRAIN=1 RUN_RENO=0 RUN_AP=0 MAX_STEPS=170000 TRAIN_POSQ=64.0 ./run_reno_baseline_curve.sh
 ```
 
 Output checkpoint:
@@ -120,7 +121,81 @@ point_pairs/reno_fov/reno_full_curve.csv
 
 `reno_ap.csv` contains KITTI R40 AP for Car, Pedestrian, and Cyclist. `reno_full_curve.csv` merges AP with bpp/time/D1/D2.
 
-## 5. One-Shot Full Run
+## 5. Quick Single-Frame PSNR-bpp Check
+
+To quickly inspect one frame before running the whole validation split, run RENO on one KITTI point cloud and combine it with existing per-frame Baseline G-PCC and Split-GPCC PSNR/bpp details:
+
+```bash
+cd /public/DATA/sm/RACO-LPCC
+
+reno/run_single_frame_psnr_bpp.sh point_pairs/reno_fov/model/ckpt.pt 000001
+```
+
+The second argument can also be a `.bin` path:
+
+```bash
+reno/run_single_frame_psnr_bpp.sh /path/to/ckpt.pt OpenPCDet/data/kitti_fov/training/velodyne/000001.bin
+```
+
+Default outputs:
+
+```text
+point_pairs/reno_single_frame/<frame_id>/<frame_id>_single_frame_psnr_bpp.csv
+point_pairs/reno_single_frame/<frame_id>/<frame_id>_d1_psnr_bpp.png
+point_pairs/reno_single_frame/<frame_id>/reno/reno_details.csv
+```
+
+This script computes RENO for the selected frame only and plots comparable D1 PSNR-bpp. For Baseline G-PCC and Split-GPCC, it reads existing single-frame bpp rows from `gpcc_baseline_details.csv` and `split_all_details.csv`, and existing single-frame PSNR rows from `point_pairs/psnr_bpp/*_psnr_details.csv`.
+
+## 6. Plot AP Curves with RENO
+
+After `reno_full_curve.csv` is generated, draw AP-bpp, AP-encoding-time, AP-decoding-time, and PSNR-bpp curves with Baseline G-PCC, Split-GPCC, JUQP Router, and RENO together:
+
+```bash
+cd /public/DATA/sm/RACO-LPCC
+
+/home/sm/miniconda3/envs/SparsePCGC/bin/python reno/plot_reno_curves.py
+```
+
+Default inputs:
+
+```text
+point_pairs/baseline_fov/baseline_gpcc_curve.csv
+point_pairs/split_gpcc_fov/split_gpcc_curve.csv
+point_pairs/router_gpcc_fov/router_gpcc_curve.csv
+point_pairs/reno_fov/reno_full_curve.csv
+point_pairs/psnr_bpp/all_methods_psnr_bpp_curve.csv
+```
+
+Default outputs are written to `plots_reno/`:
+
+```text
+plots_reno/ap_bpp_car.png
+plots_reno/ap_bpp_pedestrian.png
+plots_reno/ap_bpp_cyclist.png
+plots_reno/ap_enctime_car.png
+plots_reno/ap_enctime_pedestrian.png
+plots_reno/ap_enctime_cyclist.png
+plots_reno/ap_dectime_car.png
+plots_reno/ap_dectime_pedestrian.png
+plots_reno/ap_dectime_cyclist.png
+plots_reno/d1_psnr_bpp.png
+plots_reno/d2_psnr_bpp.png
+```
+
+To override input or output paths:
+
+```bash
+/home/sm/miniconda3/envs/SparsePCGC/bin/python reno/plot_reno_curves.py \
+  --baseline_csv point_pairs/baseline_fov/baseline_gpcc_curve.csv \
+  --split_csv point_pairs/split_gpcc_fov/split_gpcc_curve.csv \
+  --juqp_csv point_pairs/router_gpcc_fov/router_gpcc_curve.csv \
+  --reno_csv point_pairs/reno_fov/reno_full_curve.csv \
+  --psnr_csv point_pairs/psnr_bpp/all_methods_psnr_bpp_curve.csv \
+  --out_dir plots_reno
+```
+
+## 7. One-Shot Full Run
 
 After environment setup, this runs training, RENO codec evaluation, AP evaluation, and merge in one command.
 
@@ -138,11 +213,14 @@ cd /public/DATA/sm/RACO-LPCC
 RUN_TRAIN=0 RUN_RENO=1 RUN_AP=1 ./run_reno_baseline_curve.sh
 ```
 
-## 6. Important Options
+## 8. Important Options
 
 ```bash
-# Use another RENO checkpoint
-RENO_CKPT=/path/to/ckpt.pt ./run_reno_baseline_curve.sh
+# Use another RENO checkpoint for rate/time evaluation
+RUN_TRAIN=0 RUN_RENO=1 RUN_AP=1 ./run_reno_baseline_curve.sh --reno_ckpt /path/to/ckpt.pt
+
+# Equivalent environment-variable form
+RENO_CKPT=/path/to/ckpt.pt RUN_TRAIN=0 RUN_RENO=1 RUN_AP=1 ./run_reno_baseline_curve.sh
 
 # Change output directory
 OUT_DIR=/public/DATA/sm/RACO-LPCC/point_pairs/reno_fov ./run_reno_baseline_curve.sh
@@ -157,7 +235,7 @@ CFG_FILE=cfgs/kitti_models/pv_rcnn_fov_geometry.yaml DET_CKPT=ckpt/model_non_ref
 ${RENO_PYTHON_BIN} reno/reno_rates.py   --reno_root ${RENO_ROOT}   --testdata ${KITTI_VELODYNE}   --split_file ${SPLIT_FILE}   --scales ${SCALES}   --ckpt point_pairs/reno_fov/model/ckpt.pt   --results point_pairs/reno_fov/reno   --tmp_dir point_pairs/reno_fov/tmp   --bitstream_dir point_pairs/reno_fov/bitstreams   --kitti_root ${KITTI_ROOT}   --no_psnr
 ```
 
-## 7. Final Files
+## 9. Final Files
 
 ```text
 point_pairs/reno_fov/reno/reno_average.csv       # bpp, enc/dec time, D1/D2 PSNR
@@ -165,4 +243,6 @@ point_pairs/reno_fov/reno/reno_details.csv       # per-frame details
 point_pairs/reno_fov/reno_ap.csv                 # AP per scale
 point_pairs/reno_fov/reno_full_curve.csv         # merged curve table
 point_pairs/reno_fov/bitstreams/rate_<id>/       # RENO bitstreams
+plots_reno/ap_*_*.png                                # AP curves with RENO
+point_pairs/reno_single_frame/<frame_id>/             # quick single-frame PSNR-bpp check
 ```

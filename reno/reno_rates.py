@@ -243,13 +243,13 @@ def decode_bitstream(net, path, device):
 
 
 @contextmanager
-def temp_ply_pair(tmp_dir, frame_id, tag, ref_xyz, dec_xyz):
+def temp_ply_pair(tmp_dir, frame_id, tag, ref_coords, dec_coords):
     tmp_dir = Path(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
     ref_ply = tmp_dir / f'{frame_id}_{tag}_ref.ply'
     dec_ply = tmp_dir / f'{frame_id}_{tag}_dec.ply'
-    write_ply_o3d(str(ref_ply), ref_xyz.astype(np.float32), normal=True, knn=16)
-    write_ply_o3d(str(dec_ply), dec_xyz.astype(np.float32), normal=True, knn=16)
+    write_ply_o3d(str(ref_ply), ref_coords + 1, dtype='int32')
+    write_ply_o3d(str(dec_ply), dec_coords + 1, dtype='int32')
     try:
         yield ref_ply, dec_ply
     finally:
@@ -259,12 +259,13 @@ def temp_ply_pair(tmp_dir, frame_id, tag, ref_xyz, dec_xyz):
 
 
 def compute_psnr(ref_xyz, dec_xyz, frame_id, posq, tmp_dir, resolution):
-    with temp_ply_pair(tmp_dir, frame_id, f'posQ_{posq}', ref_xyz, dec_xyz) as (ref_ply, dec_ply):
-        results = pc_error(str(ref_ply), str(dec_ply), resolution=resolution, normal=True, show=False)
-    return (
-        float(results.get('mseF,PSNR (p2point)', -1.0)),
-        float(results.get('mseF,PSNR (p2plane)', -1.0)),
-    )
+    coords_mm = np.round(ref_xyz.astype(np.float64) * 1000.0).astype(np.int32)
+    offset = coords_mm.min(axis=0)
+    ref_coords = coords_mm - offset
+    dec_coords = np.round(dec_xyz.astype(np.float64) * 1000.0).astype(np.int32) - offset
+    with temp_ply_pair(tmp_dir, frame_id, f'posQ_{posq}', ref_coords, dec_coords) as (ref_ply, dec_ply):
+        results = pc_error(str(ref_ply), str(dec_ply), resolution=resolution, normal=False, show=False)
+    return float(results.get('mseF,PSNR (p2point)', -1.0)), ''
 
 
 def write_csv(path, rows, fieldnames):
@@ -292,7 +293,7 @@ def main():
     parser.add_argument('--tmp_dir', default='point_pairs/reno_fov/tmp')
     parser.add_argument('--bitstream_dir', default='point_pairs/reno_fov/bitstreams')
     parser.add_argument('--kitti_root', default='OpenPCDet/data/kitti_fov')
-    parser.add_argument('--resolution', type=float, default=59.70)
+    parser.add_argument('--resolution', type=int, default=80000)
     parser.add_argument('--channels', type=int, default=32)
     parser.add_argument('--kernel_size', type=int, default=3)
     parser.add_argument('--device', default='cuda')
@@ -402,8 +403,8 @@ def main():
             'bpp': round(total_bits / total_points, 6) if total_points else 0.0,
             'enc_time': round(sum(float(r['enc_time']) for r in rows) / len(rows), 6),
             'dec_time': round(sum(float(r['dec_time']) for r in rows) / len(rows), 6),
-            'd1_psnr': '' if args.no_psnr else round(np.mean([float(r['d1_psnr']) for r in rows]), 6),
-            'd2_psnr': '' if args.no_psnr else round(np.mean([float(r['d2_psnr']) for r in rows]), 6),
+            'd1_psnr': '' if args.no_psnr else round(np.mean([float(r['d1_psnr']) for r in rows if r['d1_psnr'] != '']), 6),
+            'd2_psnr': '' if args.no_psnr or any(r['d2_psnr'] == '' for r in rows) else round(np.mean([float(r['d2_psnr']) for r in rows]), 6),
         })
 
     avg_csv = result_dir / 'reno_average.csv'

@@ -17,7 +17,7 @@ CFG_FILE="${CFG_FILE:-cfgs/kitti_models/pv_rcnn_fov_geometry.yaml}"
 DET_CKPT="${DET_CKPT:-ckpt/model_non_reflectance.pth}"
 BATCH_SIZE="${BATCH_SIZE:-8}"
 WORKERS="${WORKERS:-4}"
-SCALES="${SCALES:-1/64,1.5/128,1/128,1.5/256,1/256,1.5/512,1/512,1/2048}"
+SCALES="${SCALES:-1/64,1/128,1/256,1/512,1/1024,1/2048}"
 
 KITTI_ROOT="${KITTI_ROOT:-${SCRIPT_DIR}/OpenPCDet/data/kitti_fov}"
 KITTI_VELODYNE="${KITTI_VELODYNE:-${KITTI_ROOT}/training/velodyne}"
@@ -37,8 +37,45 @@ RUN_TRAIN="${RUN_TRAIN:-0}"
 RUN_RENO="${RUN_RENO:-1}"
 RUN_AP="${RUN_AP:-1}"
 MAX_STEPS="${MAX_STEPS:-170000}"
-RESOLUTION="${RESOLUTION:-59.70}"
+RESOLUTION="${RESOLUTION:-80000}"
 TRAIN_POSQ="${TRAIN_POSQ:-4.0}"
+TRAIN_LOG_EVERY="${TRAIN_LOG_EVERY:-50}"
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--reno_ckpt PATH]
+
+Optional arguments:
+  --reno_ckpt, --reno-ckpt PATH  RENO checkpoint used by rate evaluation.
+  -h, --help                    Show this help message.
+
+The same value can also be passed as an environment variable:
+  RENO_CKPT=/path/to/ckpt.pt ./run_reno_baseline_curve.sh
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reno_ckpt|--reno-ckpt)
+      [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 1; }
+      RENO_CKPT="$2"
+      shift 2
+      ;;
+    --reno_ckpt=*|--reno-ckpt=*)
+      RENO_CKPT="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
 abs_path() {
   case "$1" in
@@ -61,6 +98,7 @@ require_dir() {
 
 OUT_DIR="$(abs_path "$OUT_DIR")"
 RENO_MODEL_DIR="$(abs_path "$RENO_MODEL_DIR")"
+RENO_CKPT="$(abs_path "$RENO_CKPT")"
 RENO_RESULTS_DIR="$(abs_path "$RENO_RESULTS_DIR")"
 RENO_TMP_DIR="$(abs_path "$RENO_TMP_DIR")"
 RENO_BITSTREAM_DIR="$(abs_path "$RENO_BITSTREAM_DIR")"
@@ -83,23 +121,25 @@ if [[ "$RUN_TRAIN" == "1" ]]; then
   log "Step 1/4: train RENO on KITTI"
   mkdir -p "$RENO_MODEL_DIR"
   cd "$SCRIPT_DIR"
-  "$RENO_PYTHON_BIN" reno/train_kitti.py \
+  "$RENO_PYTHON_BIN" -u reno/train_kitti.py \
     --reno_root "$RENO_ROOT" \
     --training_data "${KITTI_VELODYNE}/*.bin" \
     --model_save_folder "$RENO_MODEL_DIR" \
     --valid_samples "$TRAIN_SPLIT_FILE" \
     --batch_size 1 \
     --train_posq "$TRAIN_POSQ" \
+    --log_every "$TRAIN_LOG_EVERY" \
     --learning_rate 0.0005 \
     --max_steps "$MAX_STEPS" \
     2>&1 | tee "${OUT_DIR}/logs/train_reno.log"
 else
   log "Step 1/4 skipped: RUN_TRAIN=0"
 fi
-require_file "$RENO_CKPT"
 
 if [[ "$RUN_RENO" == "1" ]]; then
+  require_file "$RENO_CKPT"
   log "Step 2/4: RENO encode/decode, rate/time, D1/D2 PSNR"
+  log "Using RENO checkpoint: $RENO_CKPT"
   cd "$SCRIPT_DIR"
   "$RENO_PYTHON_BIN" reno/reno_rates.py \
     --reno_root "$RENO_ROOT" \

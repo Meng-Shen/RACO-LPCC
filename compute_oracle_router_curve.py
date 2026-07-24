@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import csv
 import pickle
 import sys
 from pathlib import Path
+from contextlib import contextmanager
 
 ROOT_DIR = Path(__file__).resolve().parent
 TOOLS_DIR = ROOT_DIR / "OpenPCDet" / "tools"
@@ -20,6 +22,16 @@ CLASS_TO_COL = {
     "Pedestrian": "Ped",
     "Cyclist": "Cyc",
 }
+
+
+@contextmanager
+def pushd(path):
+    old_cwd = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old_cwd)
 
 
 def parse_args():
@@ -80,18 +92,23 @@ def load_dataset(cfg_file):
     from pcdet.config import cfg, cfg_from_yaml_file
     from pcdet.datasets import build_dataloader
 
-    cfg_from_yaml_file(cfg_file, cfg)
-    dataset, _, _ = build_dataloader(
-        dataset_cfg=cfg.DATA_CONFIG,
-        class_names=cfg.CLASS_NAMES,
-        batch_size=1,
-        dist=False,
-        workers=1,
-        training=False,
-        logger=None,
-    )
-    gt_annos = [info["annos"] for info in dataset.kitti_infos]
-    frame_ids = [norm_frame_id(info["point_cloud"]["lidar_idx"]) for info in dataset.kitti_infos]
+    cfg_path = Path(cfg_file)
+    if not cfg_path.is_absolute():
+        cfg_path = (Path.cwd() / cfg_path) if cfg_path.exists() else (TOOLS_DIR / cfg_path)
+    cfg_path = cfg_path.resolve()
+    with pushd(TOOLS_DIR):
+        cfg_from_yaml_file(str(cfg_path), cfg)
+        dataset, _, _ = build_dataloader(
+            dataset_cfg=cfg.DATA_CONFIG,
+            class_names=cfg.CLASS_NAMES,
+            batch_size=1,
+            dist=False,
+            workers=1,
+            training=False,
+            logger=None,
+        )
+        gt_annos = [info["annos"] for info in dataset.kitti_infos]
+        frame_ids = [norm_frame_id(info["point_cloud"]["lidar_idx"]) for info in dataset.kitti_infos]
     return gt_annos, frame_ids
 
 
