@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -12,9 +13,12 @@ from mmengine.runner import load_checkpoint
 from mmdet3d.registry import DATASETS, MODELS
 
 
-CONFIG = Path('/home/sm/sunrgbd_lite_s3_20260828/configs/votenet_sunrgbd_geometry_finetune.py')
-CHECKPOINT = Path('/home/sm/sunrgbd_lite_s3_20260828/checkpoints/votenet_16x8_sunrgbd-3d-10class_20210820_162823-bf11f014.pth')
-OUTPUT = Path('/home/sm/sunrgbd_lite_s3_20260828/state/VOTENET_SMOKE_COMPLETE.json')
+REPO_DATASET_ROOT = Path(__file__).resolve().parents[1]
+EXTERNAL_ROOT = Path(os.environ.get(
+    'RACO_SUNRGBD_ROOT', '/home/sm/sunrgbd_lite_s3_20260828'))
+CONFIG = REPO_DATASET_ROOT / 'configs/votenet_sunrgbd_geometry_finetune.py'
+CHECKPOINT = EXTERNAL_ROOT / 'checkpoints/votenet_16x8_sunrgbd-3d-10class_20210820_162823-bf11f014.pth'
+OUTPUT = EXTERNAL_ROOT / 'state/VOTENET_SMOKE_FROM_RACO_LPCC.json'
 
 
 def main() -> None:

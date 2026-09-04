@@ -1,9 +1,17 @@
+import os
+
+
+SUNRGBD_ROOT = os.environ.get(
+    'RACO_SUNRGBD_ROOT', '/home/sm/sunrgbd_lite_s3_20260828')
+MMDET_ROOT = os.environ.get(
+    'RACO_SUNRGBD_MMDET_ROOT', f'{SUNRGBD_ROOT}/mmdetection3d')
+
 _base_ = [
-    '/home/sm/sunrgbd_lite_s3_20260828/mmdetection3d/configs/votenet/votenet_8xb16_sunrgbd-3d.py'
+    f'{MMDET_ROOT}/configs/votenet/votenet_8xb16_sunrgbd-3d.py'
 ]
 
-data_root = '/home/sm/sunrgbd_lite_s3_20260828/data/sunrgbd/'
-work_dir = '/home/sm/sunrgbd_lite_s3_20260828/experiments/votenet_geometry_finetune'
+data_root = f'{SUNRGBD_ROOT}/data/sunrgbd/'
+work_dir = f'{SUNRGBD_ROOT}/experiments/votenet_geometry_finetune'
 
 # The upstream SUN RGB-D VoteNet recipe is already geometry-only: the loader
 # reads XYZ and derives only the height feature.  Keep RGB outside the model.
@@ -43,7 +51,7 @@ param_scheduler = [
     )
 ]
 
-load_from = '/home/sm/sunrgbd_lite_s3_20260828/checkpoints/votenet_16x8_sunrgbd-3d-10class_20210820_162823-bf11f014.pth'
+load_from = f'{SUNRGBD_ROOT}/checkpoints/votenet_16x8_sunrgbd-3d-10class_20210820_162823-bf11f014.pth'
 
 default_hooks = dict(
     logger=dict(type='LoggerHook', interval=20),
