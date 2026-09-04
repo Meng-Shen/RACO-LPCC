@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from train_scannet_rate_aware_proxy import (
+from train_nuscenes_rate_aware_proxy_ddp import (
     RateAwareSparseProxy,
     load_pretrained_base,
     make_loader,
@@ -89,13 +89,16 @@ def main():
         rd_weight = 0.0
         selection_temperature = 1.0
 
-    train_loader, train_set = make_loader(
-        Args, str(train_split), str(loss_csv), str(bpp_csv), True
+    train_loader, train_set, _ = make_loader(
+        Args, str(train_split), str(loss_csv), str(bpp_csv), True,
+        distributed=False,
     )
-    val_loader, _ = make_loader(
-        Args, str(val_split), str(loss_csv), str(bpp_csv), False
+    val_loader, _, _ = make_loader(
+        Args, str(val_split), str(loss_csv), str(bpp_csv), False,
+        distributed=False,
     )
     device = torch.device("cuda:0")
+    loss_head_scale = torch.as_tensor(train_set.loss_head_scale, device=device)
     model = RateAwareSparseProxy(
         train_set.spatial_shape, 256, train_set.mean_log_bpp
     ).to(device)
@@ -118,7 +121,7 @@ def main():
         )
         values = objective(
             output, batch, lambdas, Args.target_scale, Args.rate_weight,
-            Args.rd_weight, Args.selection_temperature,
+            Args.rd_weight, Args.selection_temperature, loss_head_scale,
         )
         total = values[0]
         if training:
