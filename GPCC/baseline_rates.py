@@ -16,7 +16,7 @@ ROOT_DIR = CURRENT_DIR.parent
 sys.path.append(str(ROOT_DIR))
 
 from data_utils.geometry.inout import write_ply_o3d
-from extention.gpcc_geo import gpcc_decode, gpcc_encode
+from extension.gpcc_geo import gpcc_decode, gpcc_encode
 
 
 DEFAULT_SCALES_STR = "1/64,1.5/128,1/128,1.5/256,1/256,1.5/512,1/512"
@@ -80,7 +80,9 @@ def collect_files(testdata, split_file):
     return sorted(testdata.rglob('*.bin'))
 
 
-def encode_decode_one_scale(frame_id, coords_scaled, num_points, scale, tmp_dir, cfg_path):
+def encode_decode_one_scale(
+        frame_id, coords_scaled, num_points, scale, tmp_dir, cfg_path,
+        encode_only=False):
     ref_ply = tmp_dir / f'{frame_id}_ref.ply'
     bitstream = tmp_dir / f'{frame_id}_scale_{scale:.12g}.bin'
     dec_ply = tmp_dir / f'{frame_id}_scale_{scale:.12g}_dec.ply'
@@ -90,7 +92,7 @@ def encode_decode_one_scale(frame_id, coords_scaled, num_points, scale, tmp_dir,
         with suppress_stderr():
             enc_log = gpcc_encode(
                 str(ref_ply), str(bitstream), posQuantscale=scale, cfgdir=str(cfg_path))
-            dec_log = gpcc_decode(str(bitstream), str(dec_ply))
+            dec_log = {} if encode_only else gpcc_decode(str(bitstream), str(dec_ply))
 
         bits = bitstream.stat().st_size * 8 if bitstream.exists() else 0
         return {
@@ -112,7 +114,10 @@ def main():
     parser.add_argument('--scales', default=DEFAULT_SCALES_STR, help='Comma-separated posQuantscale list')
     parser.add_argument('--results', default='GPCC/results_gpcc_baseline', help='Output result directory')
     parser.add_argument('--tmp_dir', default='GPCC/tmp_gpcc_baseline', help='Temporary file directory')
-    parser.add_argument('--cfg', default='extention/kitti.cfg', help='G-PCC cfg file')
+    parser.add_argument('--cfg', default='extension/kitti.cfg', help='G-PCC cfg file')
+    parser.add_argument(
+        '--encode_only', action='store_true',
+        help='Skip G-PCC decoding when only bitstream size/bpp is required.')
     args = parser.parse_args()
 
     scales = parse_scales(args.scales)
@@ -144,7 +149,9 @@ def main():
             for rate_id, scale in enumerate(scales):
                 if progress is not None:
                     progress.set_postfix(frame=frame_id, scale=f'{scale:.6g}')
-                stats = encode_decode_one_scale(frame_id, coords_scaled, num_points, scale, tmp_dir, cfg_path)
+                stats = encode_decode_one_scale(
+                    frame_id, coords_scaled, num_points, scale, tmp_dir, cfg_path,
+                    encode_only=args.encode_only)
                 detail_rows.append({
                     'filename': frame_id,
                     'rate_id': rate_id,

@@ -2,7 +2,6 @@
 from .dataset_wrappers import CBGSDataset
 from .det3d_dataset import Det3DDataset
 from .kitti_dataset import KittiDataset
-from .kitti_box_seg_dataset import KittiBoxSegDataset
 from .lyft_dataset import LyftDataset
 from .nuscenes_dataset import NuScenesDataset
 # yapf: enable
@@ -34,8 +33,7 @@ __all__ = [
     'NormalizePointsColor', 'IndoorPatchPointSample', 'IndoorPointSample',
     'PointSample', 'LoadAnnotations3D', 'GlobalAlignment', 'SUNRGBDDataset',
     'ScanNetDataset', 'ScanNetSegDataset', 'ScanNetInstanceSegDataset',
-    'SemanticKittiDataset', 'KittiBoxSegDataset', 'Det3DDataset',
-    'Seg3DDataset',
+    'SemanticKittiDataset', 'Det3DDataset', 'Seg3DDataset',
     'LoadPointsFromMultiSweeps', 'WaymoDataset', 'BackgroundPointsFilter',
     'VoxelBasedPointSampler', 'get_loading_pipeline', 'RandomDropPointsColor',
     'RandomJitterPoints', 'ObjectNameFilter', 'AffineResize',

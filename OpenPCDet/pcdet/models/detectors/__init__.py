@@ -1,9 +1,15 @@
 from .detector3d_template import Detector3DTemplate
+from .pointpillar import PointPillar
+from .point_rcnn import PointRCNN
 from .pv_rcnn import PVRCNN
+from .second_net import SECONDNet
 
 __all__ = {
     'Detector3DTemplate': Detector3DTemplate,
+    'PointPillar': PointPillar,
+    'PointRCNN': PointRCNN,
     'PVRCNN': PVRCNN,
+    'SECONDNet': SECONDNet,
 }
 
 

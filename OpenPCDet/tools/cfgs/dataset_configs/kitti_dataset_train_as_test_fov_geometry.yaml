@@ -1,4 +1,0 @@
-_BASE_CONFIG_: cfgs/dataset_configs/kitti_dataset_train_as_test_geometry.yaml
-
-DATA_PATH: '../data/kitti_fov'
-FOV_POINTS_ONLY: True

@@ -1,25 +1,87 @@
-mmdetection3d/ckpt/
-mmdetection3d/demo/data/
-mmdetection3d/data/kitti_fov_box_seg/
-mmdetection3d/outputs/
-mmdetection3d/work_dirs/
-OpenPCDet/data/
-OpenPCDet/tools/ckpt/
-OpenPCDet/output/
-OpenPCDet/tools/router_work_dirs/
-__pycache__/
-*.py[cod]
+# Keep the repository code-only by default.
+# Directories stay visible so source files can be allow-listed recursively.
+*
+!*/
+
+# Repository metadata and documentation.
+!.gitignore
+!README.md
+!**/README.md
+!LICENSE
+!LICENSE.*
+!**/LICENSE
+!**/LICENSE.*
+
+# Python and shell code.
+!*.py
+!*.pyi
+!*.sh
+
+# Native/CUDA source needed by imported detection frameworks.
+!*.c
+!*.cc
+!*.cpp
+!*.h
+!*.hpp
+!*.cu
+!*.cuh
+
+# Reproducible experiment and build configuration.
+!*.yaml
+!*.yml
+!*.toml
+!*.cfg
+!*.ini
+!*.cmake
+!CMakeLists.txt
+!Makefile
+!requirements*.txt
+
+# Never track caches or compiled artifacts.
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.py[cod]
+**/*.so
+**/*.o
+**/*.a
+
+# Never track datasets, temporary files, checkpoints, or experiment outputs.
+**/data/
+**/tmp/
+**/temp/
+**/cache/
+**/caches/
+**/ckpt/
+**/checkpoints/
+**/output/
+**/outputs/
+**/work_dirs/
+**/router_work_dirs/
+**/runs/
+**/logs/
+**/results/
+**/result/
+experiment_results/
+
+# Common generated artifacts outside the standard output directories.
 *.log
-*.json
-*.label
 *.csv
-*.png
+*.json
 *.npy
+*.npz
 *.bin
-*.txt
 *.pkl
 *.pth
-*.ply
 *.pt
+*.ply
+*.pcd
+*.png
 *.jpg
+*.jpeg
 *.pdf
+*.zip
+*.tar
+*.gz
+*.7z

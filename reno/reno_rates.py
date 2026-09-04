@@ -24,7 +24,7 @@ DEFAULT_RENO_ROOT = Path('/public/DATA/sm/RENO')
 sys.path.append(str(ROOT_DIR))
 
 from data_utils.geometry.inout import write_ply_o3d  # noqa: E402
-from extention.pc_error_geo import pc_error  # noqa: E402
+from extension.pc_error_geo import pc_error  # noqa: E402
 
 
 def add_reno_to_path(reno_root):
@@ -289,9 +289,9 @@ def main():
     )
     parser.add_argument('--posqs', default=None, help='Deprecated alias: comma-separated RENO posQ values.')
     parser.add_argument('--ckpt', required=True)
-    parser.add_argument('--results', default='point_pairs/reno_fov/reno')
-    parser.add_argument('--tmp_dir', default='point_pairs/reno_fov/tmp')
-    parser.add_argument('--bitstream_dir', default='point_pairs/reno_fov/bitstreams')
+    parser.add_argument('--results', default='experiment_results/reno_fov/reno')
+    parser.add_argument('--tmp_dir', default='experiment_results/reno_fov/tmp')
+    parser.add_argument('--bitstream_dir', default='experiment_results/reno_fov/bitstreams')
     parser.add_argument('--kitti_root', default='OpenPCDet/data/kitti_fov')
     parser.add_argument('--resolution', type=int, default=80000)
     parser.add_argument('--channels', type=int, default=32)
@@ -340,6 +340,7 @@ def main():
             x, offset = points_to_sparse(ref_xyz, posq, device)
             if device.type == 'cuda':
                 torch.cuda.synchronize()
+                torch.cuda.reset_peak_memory_stats(device)
             t0 = time.perf_counter()
             base_coords, base_feats, byte_stream = encode_tensor(net, x)
             bitstream = bitstream_dir / f'rate_{rate_id}' / f'{frame_id}.bin'
@@ -347,14 +348,21 @@ def main():
             if device.type == 'cuda':
                 torch.cuda.synchronize()
             enc_time = time.perf_counter() - t0
+            enc_peak_memory_mib = (
+                torch.cuda.max_memory_allocated(device) / (1024.0 ** 2)
+                if device.type == 'cuda' else 0.0)
 
             if device.type == 'cuda':
                 torch.cuda.synchronize()
+                torch.cuda.reset_peak_memory_stats(device)
             t0 = time.perf_counter()
             dec_xyz = decode_bitstream(net, bitstream, device)
             if device.type == 'cuda':
                 torch.cuda.synchronize()
             dec_time = time.perf_counter() - t0
+            dec_peak_memory_mib = (
+                torch.cuda.max_memory_allocated(device) / (1024.0 ** 2)
+                if device.type == 'cuda' else 0.0)
 
             d1_psnr, d2_psnr = '', ''
             if not args.no_psnr:
@@ -373,6 +381,8 @@ def main():
                 'bpp': round(bits / num_points, 6),
                 'enc_time': round(enc_time, 6),
                 'dec_time': round(dec_time, 6),
+                'enc_peak_memory_mib': round(enc_peak_memory_mib, 6),
+                'dec_peak_memory_mib': round(dec_peak_memory_mib, 6),
                 'd1_psnr': d1_psnr if d1_psnr == '' else round(d1_psnr, 6),
                 'd2_psnr': d2_psnr if d2_psnr == '' else round(d2_psnr, 6),
             })
@@ -380,7 +390,8 @@ def main():
     detail_csv = result_dir / 'reno_details.csv'
     write_csv(detail_csv, detail_rows, [
         'filename', 'rate_id', 'scale', 'scale_label', 'posQ', 'num_points', 'decoded_points',
-        'bits', 'bpp', 'enc_time', 'dec_time', 'd1_psnr', 'd2_psnr'
+        'bits', 'bpp', 'enc_time', 'dec_time', 'enc_peak_memory_mib',
+        'dec_peak_memory_mib', 'd1_psnr', 'd2_psnr'
     ])
 
     grouped = {}
@@ -403,6 +414,10 @@ def main():
             'bpp': round(total_bits / total_points, 6) if total_points else 0.0,
             'enc_time': round(sum(float(r['enc_time']) for r in rows) / len(rows), 6),
             'dec_time': round(sum(float(r['dec_time']) for r in rows) / len(rows), 6),
+            'enc_peak_memory_mib': round(sum(
+                float(r['enc_peak_memory_mib']) for r in rows) / len(rows), 6),
+            'dec_peak_memory_mib': round(sum(
+                float(r['dec_peak_memory_mib']) for r in rows) / len(rows), 6),
             'd1_psnr': '' if args.no_psnr else round(np.mean([float(r['d1_psnr']) for r in rows if r['d1_psnr'] != '']), 6),
             'd2_psnr': '' if args.no_psnr or any(r['d2_psnr'] == '' for r in rows) else round(np.mean([float(r['d2_psnr']) for r in rows]), 6),
         })
@@ -410,7 +425,8 @@ def main():
     avg_csv = result_dir / 'reno_average.csv'
     write_csv(avg_csv, avg_rows, [
         'rate_id', 'posQ', 'num_frames', 'total_points', 'total_bits',
-        'scale', 'scale_label', 'bpp', 'enc_time', 'dec_time', 'd1_psnr', 'd2_psnr'
+        'scale', 'scale_label', 'bpp', 'enc_time', 'dec_time',
+        'enc_peak_memory_mib', 'dec_peak_memory_mib', 'd1_psnr', 'd2_psnr'
     ])
 
     print(f'Detail CSV: {detail_csv}')
