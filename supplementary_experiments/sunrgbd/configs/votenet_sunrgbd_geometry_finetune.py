@@ -3,11 +3,9 @@ import os
 
 SUNRGBD_ROOT = os.environ.get(
     'RACO_SUNRGBD_ROOT', '/home/sm/sunrgbd_lite_s3_20260828')
-MMDET_ROOT = os.environ.get(
-    'RACO_SUNRGBD_MMDET_ROOT', f'{SUNRGBD_ROOT}/mmdetection3d')
 
 _base_ = [
-    f'{MMDET_ROOT}/configs/votenet/votenet_8xb16_sunrgbd-3d.py'
+    '/home/sm/sunrgbd_lite_s3_20260828/mmdetection3d/configs/votenet/votenet_8xb16_sunrgbd-3d.py'
 ]
 
 data_root = f'{SUNRGBD_ROOT}/data/sunrgbd/'
